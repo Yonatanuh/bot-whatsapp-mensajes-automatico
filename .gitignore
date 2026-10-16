@@ -1,0 +1,43 @@
+# ── CREDENCIALES Y VARIABLES DE ENTORNO (ANTI-LEAK) ──
+.env
+.env.local
+.env.*.local
+.env.production
+.env*
+*.env
+!.env.example
+frontend/.env
+frontend/.env*
+!frontend/.env.example
+
+# ── SESIONES PRIVADAS WHATSAPP & CACHE CHROMIUM ──
+.wwebjs_auth/
+.wwebjs_cache/
+**/.wwebjs_auth/
+**/.wwebjs_cache/
+
+# ── BASES DE DATOS PRIVADAS Y RESPALDOS (CONFIDENCIAL) ──
+users.json
+clients.json
+templates.json
+backups/
+**/backups/
+
+# ── DEPENDENCIAS ──
+node_modules/
+frontend/node_modules/
+
+# ── COMPILADOS DE PRODUCCIÓN ──
+dist/
+frontend/dist/
+
+# ── REGISTROS Y ARCHIVOS TEMPORALES ──
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.tmp
+*.bak
+out.txt
+.DS_Store
+Thumbs.db

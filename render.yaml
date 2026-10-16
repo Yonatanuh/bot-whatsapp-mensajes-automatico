@@ -1,0 +1,39 @@
+services:
+  # ── BACKEND: Node.js + WhatsApp-Web.js en Render ──
+  - type: web
+    name: gateway-whatsapp-pagos-api
+    runtime: node
+    region: oregon
+    plan: starter          # Plan Starter para soportar disco persistente
+    buildCommand: npm install
+    startCommand: node server.js
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATA_DIR
+        value: /var/data
+      - key: JWT_SECRET
+        sync: false         # Generar clave secreta segura
+      - key: ADMIN_USER
+        sync: false
+      - key: ADMIN_PASS
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: SMTP_EMAIL
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false         # Aquí pondrás la URL de tu frontend en Vercel (ej: https://tu-app.vercel.app)
+
+    # Disco persistente para no perder clientes, usuarios, plantillas ni sesión de WhatsApp
+    disk:
+      name: whatsapp-gateway-data
+      mountPath: /var/data
+      sizeGB: 1

@@ -1,0 +1,493 @@
+:root {
+  --wa-green: #25d366;
+  --wa-button: #00a884;
+  --wa-button-hover: #008f6f;
+  --wa-dark: #075e54;
+  --wa-mid: #128c7e;
+  --wa-bg: #ece5dd;
+  --wa-card: #ffffff;
+  --wa-text: #111b21;
+  --wa-muted: #667781;
+  --wa-border: #e2e8f0;
+  --wa-input-bg: #f0f2f5;
+  --wa-bubble-sent: #dcf8c6;
+  --wa-bubble-sent-text: #111b21;
+  --wa-bubble-recv: #ffffff;
+  --wa-bubble-recv-text: #111b21;
+  --wa-header-bg: #075e54;
+  --wa-error: #ea0038;
+}
+
+/* Modo oscuro (WhatsApp Web Dark Theme) */
+.dashboard-page.dark {
+  --wa-bg: #0c1317;
+  --wa-card: #111b21;
+  --wa-text: #e9edef;
+  --wa-muted: #8696a0;
+  --wa-border: #222e35;
+  --wa-input-bg: #202c33;
+  --wa-bubble-sent: #005c4b;
+  --wa-bubble-sent-text: #e9edef;
+  --wa-bubble-recv: #202c33;
+  --wa-bubble-recv-text: #e9edef;
+  --wa-header-bg: #202c33;
+  --wa-dark: #00a884;
+}
+
+/* Reset y caja en todo el dashboard */
+.dashboard-page,
+.dashboard-page *,
+.dashboard-page *::before,
+.dashboard-page *::after {
+  box-sizing: border-box !important;
+}
+
+.dashboard-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  background-color: var(--wa-bg);
+  color: var(--wa-text);
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Franja decorativa superior verde */
+.dashboard-top-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 120px;
+  background: linear-gradient(135deg, var(--wa-dark), var(--wa-mid));
+  z-index: 0;
+}
+
+.dashboard-page.dark .dashboard-top-banner {
+  background: #202c33;
+  border-bottom: 1px solid var(--wa-border);
+}
+
+/* ── SIDEBAR ESTILO WHATSAPP ── */
+.wa-sidebar {
+  width: 280px;
+  background: var(--wa-card);
+  border-right: 1px solid var(--wa-border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  inset-block: 0;
+  left: 0;
+  z-index: 40;
+  transition: transform 0.25s ease, background-color 0.3s ease;
+  box-shadow: 2px 0 16px rgba(0, 0, 0, 0.05);
+}
+
+.wa-sidebar-header {
+  height: 64px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--wa-border);
+  background: var(--wa-card);
+}
+
+.wa-logo-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--wa-green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(37, 211, 102, 0.3);
+}
+
+.wa-nav-list {
+  padding: 12px 10px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.wa-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--wa-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.wa-nav-item:hover {
+  background: var(--wa-input-bg);
+  color: var(--wa-text);
+}
+
+.wa-nav-item.active {
+  background: rgba(0, 168, 132, 0.1);
+  color: var(--wa-button);
+  border-left: 4px solid var(--wa-button);
+}
+
+.wa-sidebar-footer {
+  padding: 14px;
+  border-top: 1px solid var(--wa-border);
+  background: var(--wa-card);
+}
+
+/* ── CONTENIDO PRINCIPAL ── */
+.wa-main-content {
+  flex: 1;
+  margin-left: 280px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 10;
+}
+
+/* Barra Superior Sticky */
+.wa-header {
+  height: 64px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--wa-card);
+  border-bottom: 1px solid var(--wa-border);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+/* Botón Interruptor de Modo Oscuro */
+.theme-toggle-mini {
+  background: var(--wa-input-bg);
+  border: 1px solid var(--wa-border);
+  color: var(--wa-text);
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.2s ease;
+}
+
+.theme-toggle-mini:hover {
+  border-color: var(--wa-button);
+}
+
+/* Tarjetas Principales del Dashboard */
+.wa-card {
+  background: var(--wa-card);
+  border: 1px solid var(--wa-border);
+  border-radius: 16px;
+  padding: 24px 28px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Indicadores KPI */
+.wa-kpi-chip {
+  background: var(--wa-card);
+  border: 1px solid var(--wa-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+
+.wa-kpi-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--wa-muted);
+  letter-spacing: 0.5px;
+}
+
+.wa-kpi-val {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--wa-text);
+  margin-top: 4px;
+  font-family: inherit;
+}
+
+/* Inputs y Textareas estilo WhatsApp */
+.wa-textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  background: var(--wa-input-bg);
+  color: var(--wa-text);
+  border: 1px solid var(--wa-border);
+  border-radius: 14px;
+  padding: 16px;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  line-height: 1.5;
+}
+
+.wa-textarea:focus {
+  border-color: var(--wa-button);
+  box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.15);
+}
+
+/* Botones principales estilo WhatsApp */
+.btn-wa-primary {
+  background: var(--wa-button);
+  color: #fff;
+  border: none;
+  border-radius: 24px;
+  padding: 12px 22px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 3px 12px rgba(0, 168, 132, 0.28);
+  transition: background-color 0.2s, transform 0.1s, box-shadow 0.2s;
+  width: 100%;
+}
+
+.btn-wa-primary:hover:not(:disabled) {
+  background: var(--wa-button-hover);
+  box-shadow: 0 4px 16px rgba(0, 168, 132, 0.4);
+}
+
+.btn-wa-primary:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.btn-wa-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Botón secundario */
+.btn-wa-secondary {
+  background: var(--wa-input-bg);
+  border: 1px solid var(--wa-border);
+  color: var(--wa-text);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.btn-wa-secondary:hover {
+  border-color: var(--wa-button);
+  color: var(--wa-button);
+}
+
+/* Terminal de Logs WhatsApp */
+.wa-terminal-box {
+  background: #111b21;
+  border: 1px solid #202c33;
+  border-radius: 14px;
+  overflow: hidden;
+  color: #25d366;
+  font-family: inherit, system-ui, -apple-system, sans-serif;
+}
+
+.wa-terminal-header {
+  background: #202c33;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #2a3942;
+  color: #8696a0;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.wa-terminal-body {
+  padding: 12px 14px;
+  height: 180px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+/* Mockup de Celular WhatsApp */
+.wa-mockup-frame {
+  width: 100%;
+  max-width: 310px;
+  margin: 0 auto;
+  border-radius: 28px;
+  border: 5px solid #2a3942;
+  background: #0b141a;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+.wa-mockup-header {
+  background: #008069;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #fff;
+}
+
+.wa-mockup-chat {
+  background-color: #0b141a;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 16px 16px;
+  padding: 12px;
+  min-height: 180px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.wa-bubble-out {
+  background: var(--wa-bubble-sent);
+  color: var(--wa-bubble-sent-text);
+  border-radius: 10px;
+  border-top-right-radius: 0;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  max-width: 90%;
+  align-self: flex-end;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  word-break: break-word;
+}
+
+.wa-bubble-in {
+  background: var(--wa-bubble-recv);
+  color: var(--wa-bubble-recv-text);
+  border-radius: 10px;
+  border-top-left-radius: 0;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  max-width: 82%;
+  align-self: flex-start;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* ── ADAPTABILIDAD MÓVIL ── */
+@media (max-width: 768px) {
+  .wa-sidebar {
+    transform: translateX(-100%);
+  }
+
+  .wa-sidebar.open {
+    transform: translateX(0);
+  }
+
+  .wa-main-content {
+    margin-left: 0;
+  }
+
+  .wa-header {
+    padding: 0 14px;
+  }
+
+  .wa-textarea {
+    font-size: 16px;
+    padding: 14px;
+  }
+}
+
+/* ── ANIMACIONES Y NOTIFICACIONES TOAST FLOTANTES ── */
+.pulse-indicator {
+  box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.7);
+  animation: waPulse 1.8s infinite;
+}
+
+@keyframes waPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(37, 211, 102, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 211, 102, 0);
+  }
+}
+
+.wa-toast-alert {
+  position: fixed;
+  top: 18px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  animation: slideDownToast 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 90vw;
+}
+
+@keyframes slideDownToast {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.wa-toast-success {
+  background: #00a884;
+  color: #ffffff;
+}
+
+.wa-toast-error {
+  background: #ea0038;
+  color: #ffffff;
+}
+
+.wa-toast-warn {
+  background: #d97706;
+  color: #ffffff;
+}
+
+.wa-toast-info {
+  background: #128c7e;
+  color: #ffffff;
+}
+
+

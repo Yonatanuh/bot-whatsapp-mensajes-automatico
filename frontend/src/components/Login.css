@@ -1,0 +1,442 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --wa-green: #25d366;
+  --wa-button: #00a884;
+  --wa-button-hover: #008f6f;
+  --wa-dark: #075e54;
+  --wa-mid: #128c7e;
+  --wa-bg: #ece5dd;
+  --wa-card: #ffffff;
+  --wa-text: #111b21;
+  --wa-muted: #667781;
+  --wa-border: #d1d7db;
+  --wa-input-bg: #ffffff;
+  --wa-error: #ea0038;
+}
+
+/* Modo oscuro (WhatsApp Dark Theme) */
+.login-page.dark {
+  --wa-bg: #111b21;
+  --wa-card: #202c33;
+  --wa-text: #e9edef;
+  --wa-muted: #8696a0;
+  --wa-border: #2a3942;
+  --wa-input-bg: #111b21;
+  --wa-dark: #00a884;
+}
+
+/* Forzar box-sizing en todos los elementos del login para evitar desbordes */
+.login-page,
+.login-page *,
+.login-page *::before,
+.login-page *::after {
+  box-sizing: border-box !important;
+}
+
+.login-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  padding: 24px 16px;
+  background: var(--wa-bg);
+  color: var(--wa-text);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  transition: background-color 0.3s ease;
+  overflow-x: hidden;
+}
+
+/* Franja verde superior de WhatsApp Web */
+.login-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 220px;
+  background: linear-gradient(135deg, var(--wa-dark), var(--wa-mid));
+  z-index: 0;
+}
+
+/* Botón flotante para alternar Tema */
+.theme-toggle-btn {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  padding: 7px 13px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.theme-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+/* Tarjeta principal */
+.login-card {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 420px;
+  background: var(--wa-card);
+  border-radius: 16px;
+  padding: 44px 32px 32px;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.16);
+  animation: fadeUp 0.4s ease;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+  margin: auto;
+}
+
+/* Logotipo flotante */
+.login-logo {
+  width: 76px;
+  height: 76px;
+  margin: -82px auto 16px;
+  border-radius: 50%;
+  background: var(--wa-green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 4px solid var(--wa-card);
+  box-shadow: 0 6px 16px rgba(37, 211, 102, 0.35);
+  transition: border-color 0.3s ease;
+}
+
+.login-card h1 {
+  text-align: center;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--wa-text);
+  margin-bottom: 4px;
+}
+
+.subtitle {
+  text-align: center;
+  color: var(--wa-muted);
+  font-size: 0.95rem;
+  line-height: 1.4;
+  margin: 6px 0 26px;
+}
+
+.api-error-banner {
+  background: rgba(234, 0, 56, 0.1);
+  border: 1px solid rgba(234, 0, 56, 0.25);
+  color: var(--wa-error);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  margin-bottom: 18px;
+  text-align: center;
+  font-weight: 500;
+  animation: fadeUp 0.3s ease;
+}
+
+/* Campos de Formulario */
+.field {
+  margin-bottom: 18px;
+  text-align: left;
+  width: 100%;
+}
+
+.field label {
+  display: block;
+  font-size: 0.88rem;
+  color: var(--wa-dark);
+  font-weight: 600;
+  margin-bottom: 8px;
+  letter-spacing: 0.01em;
+}
+
+.login-page.dark .field label {
+  color: #00a884;
+}
+
+.field input {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--wa-border);
+  border-radius: 10px;
+  font-size: 1rem;
+  outline: none;
+  background: var(--wa-input-bg);
+  color: var(--wa-text);
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+}
+
+.field input:focus {
+  border-color: var(--wa-button);
+  box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.2);
+}
+
+.field input.invalid {
+  border-color: var(--wa-error);
+}
+
+.error {
+  display: block;
+  color: var(--wa-error);
+  font-size: 0.78rem;
+  margin-top: 5px;
+  font-weight: 500;
+}
+
+/* ─── CORRECCIÓN CRÍTICA DEL CAMPO CONTRASEÑA ─── */
+.password-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.password-wrapper input {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 12px 76px 12px 14px;
+}
+
+.toggle {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--wa-mid);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 4px;
+  line-height: 1;
+  user-select: none;
+  z-index: 2;
+}
+
+.toggle:hover {
+  color: var(--wa-button);
+}
+
+/* Opciones: Recordarme / Olvidaste contraseña */
+.options {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--wa-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.remember input {
+  accent-color: var(--wa-button);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.login-card a {
+  color: var(--wa-mid);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.login-card a:hover {
+  text-decoration: underline;
+}
+
+/* Botón Principal */
+.btn-primary {
+  width: 100%;
+  padding: 13px;
+  border: none;
+  border-radius: 24px;
+  background: var(--wa-button);
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 4px 14px rgba(0, 168, 132, 0.3);
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--wa-button-hover);
+  box-shadow: 0 6px 18px rgba(0, 168, 132, 0.4);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.quick-credentials {
+  margin-top: 18px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 168, 132, 0.08);
+  border: 1px dashed rgba(0, 168, 132, 0.3);
+  font-size: 0.78rem;
+  color: var(--wa-muted);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.quick-credentials strong {
+  color: var(--wa-button);
+  font-weight: 600;
+}
+
+.signup {
+  text-align: center;
+  margin-top: 18px;
+  font-size: 0.86rem;
+  color: var(--wa-muted);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── FORMATO ADAPTABLE PARA DISPOSITIVOS MÓVILES (SMARTPHONES) ─── */
+@media (max-width: 480px) {
+  .login-page {
+    padding: 16px 12px;
+    align-items: flex-start;
+    padding-top: 50px;
+  }
+
+  .login-header {
+    height: 180px;
+  }
+
+  .theme-toggle-btn {
+    top: 12px;
+    right: 12px;
+    padding: 6px 11px;
+    font-size: 0.75rem;
+  }
+
+  .login-card {
+    width: 100%;
+    max-width: 100%;
+    padding: 38px 20px 24px;
+    border-radius: 18px;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+  }
+  
+  .login-logo {
+    width: 68px;
+    height: 68px;
+    margin: -72px auto 14px;
+    border-width: 3.5px;
+  }
+
+  .login-card h1 {
+    font-size: 1.45rem;
+  }
+
+  .subtitle {
+    font-size: 0.84rem;
+    margin: 4px 0 20px;
+  }
+
+  /* 16px en inputs para evitar el zoom automático no deseado en iPhone / iOS */
+  .field input {
+    font-size: 16px;
+    padding: 12px 14px;
+  }
+
+  .password-wrapper input {
+    font-size: 16px;
+    padding: 12px 76px 12px 14px;
+  }
+
+  .options {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .options a {
+    align-self: flex-start;
+  }
+
+  .btn-primary {
+    padding: 14px;
+    font-size: 1rem;
+    border-radius: 26px;
+  }
+
+  .quick-credentials {
+    font-size: 0.74rem;
+    padding: 8px 10px;
+  }
+}
+
+@media (max-width: 340px) {
+  .login-card {
+    padding: 34px 16px 20px;
+  }
+  
+  .password-wrapper input {
+    padding: 12px 68px 12px 14px;
+  }
+  
+  .toggle {
+    right: 8px;
+    font-size: 0.78rem;
+  }
+}
