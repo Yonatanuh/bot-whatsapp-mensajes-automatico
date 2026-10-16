@@ -79,3 +79,4 @@ cp .env.example .env
 
 ## 📜 Licencia
 Uso exclusivo y privado. Todos los derechos reservados.
+
