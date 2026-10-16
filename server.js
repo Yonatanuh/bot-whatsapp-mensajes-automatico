@@ -13,9 +13,20 @@ const { encryptField, decryptField } = require("./services/cryptoService");
 const { createBackup, listBackups, initAutoBackup } = require("./services/backupService");
 
 // ── PERSISTENCIA DE DATOS Y CLIENTES ──
-const DATA_DIR = process.env.DATA_DIR || __dirname;
-if (!fs.existsSync(DATA_DIR)) {
-  try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+let DATA_DIR = __dirname;
+if (process.env.DATA_DIR) {
+  try {
+    if (!fs.existsSync(process.env.DATA_DIR)) {
+      fs.mkdirSync(process.env.DATA_DIR, { recursive: true });
+    }
+    const testFile = path.join(process.env.DATA_DIR, ".write_test");
+    fs.writeFileSync(testFile, "ok");
+    fs.unlinkSync(testFile);
+    DATA_DIR = process.env.DATA_DIR;
+  } catch (err) {
+    console.warn(`⚠️ No se pudo usar DATA_DIR (${process.env.DATA_DIR}). Usando almacenamiento local en ${__dirname}`);
+    DATA_DIR = __dirname;
+  }
 }
 
 // PERSISTENCIA DE USUARIOS
@@ -1025,25 +1036,38 @@ if (fs.existsSync(distPath)) {
     }
     next();
   });
+} else {
+  // Ruta raíz para Health Check de Render / Vercel cuando el frontend se sirve por separado
+  app.get("/", (req, res) => {
+    res.json({
+      status: "ONLINE",
+      service: "Gateway de WhatsApp Pagos y Cobranzas API",
+      version: "1.0.0",
+      healthCheck: "/api/test/health",
+      timestamp: new Date().toISOString()
+    });
+  });
 }
 
 process.on("uncaughtException", (err) => {
   console.error("⚠️ [PROCESO] Excepción no capturada:", err.message);
-  process.exit(1);
+  if (err.code === "EADDRINUSE") {
+    process.exit(1);
+  }
 });
 
 process.on("unhandledRejection", (reason) => {
-  console.error("⚠️ [PROCESO] Promesa rechazada no manejada:", reason);
-  process.exit(1);
+  console.error("⚠️ [PROCESO] Promesa rechazada no manejada:", reason ? (reason.message || reason) : "Unknown reason");
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Gateway de WhatsApp (Producción Segura) activo en puerto ${PORT}`);
   // Iniciar temporizador de respaldos automáticos diarios
   initAutoBackup();
   // Pre-inicializar sesión del Administrador para que esté conectada de inmediato
-  getOrCreateUserSession("gonzalezyonild@gmail.com");
+  const defaultAdminEmail = (process.env.ADMIN_EMAIL || "gonzalezyonild@gmail.com").toLowerCase();
+  getOrCreateUserSession(defaultAdminEmail);
 });
 
 
