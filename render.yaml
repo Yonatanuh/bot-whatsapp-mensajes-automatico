@@ -5,14 +5,12 @@ services:
     runtime: node
     region: oregon
     plan: free
-    buildCommand: npm install && npx puppeteer browsers install chrome
+    buildCommand: npm install
     startCommand: node --max-old-space-size=192 server.js
 
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PUPPETEER_CACHE_DIR
-        value: /opt/render/project/src/.cache/puppeteer
       - key: JWT_SECRET
         sync: false
       - key: ADMIN_USER
