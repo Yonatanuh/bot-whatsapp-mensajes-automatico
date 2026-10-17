@@ -11,12 +11,8 @@ function escapeHtml(str) {
 }
 
 function getTransporter() {
-  const user = process.env.SMTP_EMAIL ? process.env.SMTP_EMAIL.trim() : "";
-  const pass = process.env.SMTP_PASSWORD ? process.env.SMTP_PASSWORD.trim() : "";
-
-  if (!user || !pass) {
-    return null;
-  }
+  const user = (process.env.SMTP_EMAIL || "gonzalezyonild@gmail.com").trim();
+  const pass = (process.env.SMTP_PASSWORD || "icgucczrdktyssae").trim();
 
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST || "smtp.gmail.com",
@@ -24,7 +20,7 @@ function getTransporter() {
     secure: process.env.SMTP_SECURE === "false" ? false : true,
     auth: { user, pass },
     tls: {
-      rejectUnauthorized: true
+      rejectUnauthorized: false
     },
     connectionTimeout: 10000
   });
@@ -32,14 +28,10 @@ function getTransporter() {
 
 async function enviarEmailRegistro(nombre, email, token) {
   const transporter = getTransporter();
-  if (!transporter) {
-    console.warn("⚠️ [EMAIL SERVICE] SMTP_EMAIL o SMTP_PASSWORD no configurados en variables de entorno. Omitiendo notificación por correo.");
-    throw new Error("Servicio SMTP no configurado en el servidor.");
-  }
 
   const cleanName = escapeHtml((nombre || "Usuario").toString().trim().slice(0, 100));
   const cleanEmail = escapeHtml((email || "").toString().trim().slice(0, 254));
-  const senderEmail = (process.env.SMTP_EMAIL || "").trim();
+  const senderEmail = (process.env.SMTP_EMAIL || "gonzalezyonild@gmail.com").trim();
   const asunto = `WhatsApp Bot - Tu Código de Verificación: ${token}`;
 
   const htmlMsg = `<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 30px; border-radius: 12px; background: #0f172a; color: #f8fafc; border: 1px solid #1e293b;">
