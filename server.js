@@ -696,16 +696,22 @@ async function getOrCreateUserSession(userEmail) {
 
   if (sessions.has(cleanEmail)) {
     const existing = sessions.get(cleanEmail);
-    if (existing && (existing.status === "CONNECTED" || existing.status === "QR_READY" || existing.status === "INITIALIZING" || existing.status === "AUTHENTICATED")) {
-      return existing;
-    }
-    // Si la sesión anterior estaba desconectada o rota, destruir y recrear limpiamente
-    try {
-      if (existing && existing.client) {
-        existing.client.destroy().catch(() => {});
+    if (existing) {
+      if (existing.status === "CONNECTED" || existing.status === "QR_READY" || existing.status === "AUTHENTICATED") {
+        return existing;
       }
-    } catch {}
-    sessions.delete(cleanEmail);
+      if (existing.status === "INITIALIZING" && Date.now() - (existing.createdAt || 0) < 90000) {
+        return existing;
+      }
+      // Si la sesión anterior estaba estancada en INITIALIZING (>90s) o desconectada, destruir y recrear limpiamente
+      console.warn(`⏳ [WHATSAPP] Sesión previa de ${cleanEmail} estancada en ${existing.status}. Reconstruyendo limpiamente...`);
+      try {
+        if (existing.client) {
+          existing.client.destroy().catch(() => {});
+        }
+      } catch {}
+      sessions.delete(cleanEmail);
+    }
   }
 
   const clientId = getSessionClientId(cleanEmail);
@@ -714,7 +720,8 @@ async function getOrCreateUserSession(userEmail) {
     status: "INITIALIZING",
     qr: "",
     userEmail: cleanEmail,
-    info: null
+    info: null,
+    createdAt: Date.now()
   };
   sessions.set(cleanEmail, sessionData);
 
@@ -724,6 +731,18 @@ async function getOrCreateUserSession(userEmail) {
   const authDataPath = process.platform === "linux"
     ? path.join("/tmp", ".wwebjs_auth")
     : path.join(DATA_DIR, ".wwebjs_auth");
+
+  // Limpiar posibles bloqueos huérfanos de Chromium que impiden el arranque
+  const sessionDir = path.join(authDataPath, `session-${clientId}`);
+  if (fs.existsSync(sessionDir)) {
+    const staleLocks = ["SingletonLock", "SingletonCookie", "SingletonSocket"];
+    for (const lock of staleLocks) {
+      const lockFile = path.join(sessionDir, lock);
+      if (fs.existsSync(lockFile)) {
+        try { fs.unlinkSync(lockFile); } catch {}
+      }
+    }
+  }
 
   const puppeteerConfig = {
     headless: true,
@@ -737,6 +756,8 @@ async function getOrCreateUserSession(userEmail) {
   if (resolvedChromiumExecutable && fs.existsSync(resolvedChromiumExecutable)) {
     puppeteerConfig.executablePath = resolvedChromiumExecutable;
   }
+
+  console.log(`🚀 [WHATSAPP] Iniciando pasarela para: ${cleanEmail}...`);
 
   const client = new Client({
     authStrategy: new LocalAuth({ clientId, dataPath: authDataPath }),
@@ -1076,7 +1097,16 @@ app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
   const session = sessions.get(userEmail);
   if (session && session.client) {
-    try { await session.client.logout(); } catch {}
+    if (session.status === "CONNECTED") {
+      try {
+        await Promise.race([
+          session.client.logout(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Logout timeout")), 4000))
+        ]);
+      } catch (err) {
+        console.warn(`⚠️ [WHATSAPP] Logout no completado limpiamente para ${userEmail}:`, err.message);
+      }
+    }
     try { await session.client.destroy(); } catch {}
     sessions.delete(userEmail);
   }
@@ -1480,7 +1510,8 @@ app.get("/api/test/health", authenticateToken, async (req, res) => {
       email,
       status: s.status,
       hasQr: Boolean(s.qr),
-      qrLength: s.qr ? s.qr.length : 0
+      qrLength: s.qr ? s.qr.length : 0,
+      ageSeconds: Math.floor((Date.now() - (s.createdAt || Date.now())) / 1000)
     }));
     responseData.recentLogs = systemLogs.slice(-25);
     responseData.memoryMB = {
