@@ -752,6 +752,10 @@ async function getOrCreateUserSession(userEmail) {
     authTimeoutMs: 90000,
     userAgent: DESKTOP_USER_AGENT,
     puppeteer: puppeteerConfig,
+    webVersionCache: {
+      type: "remote",
+      remotePath: "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1050732206-alpha.html",
+    }
   });
 
   sessionData.client = client;
@@ -820,11 +824,12 @@ async function getOrCreateUserSession(userEmail) {
   });
 
   client.initialize().catch(async (err) => {
-    console.error(`⚠️ Error al inicializar WhatsApp para ${cleanEmail}:`, err.message);
+    const errorMsg = (err && err.message) ? err.message : String(err || "Error desconocido");
+    console.error(`⚠️ Error al inicializar WhatsApp para ${cleanEmail}:`, errorMsg);
     sessionData.status = "DISCONNECTED";
     sessionData.qr = "";
     io.to(cleanEmail).emit("status", "DISCONNECTED");
-    io.to(cleanEmail).emit("log", `⚠️ Error inicializando pasarela WhatsApp: ${err.message}`);
+    io.to(cleanEmail).emit("log", `⚠️ Error inicializando pasarela WhatsApp: ${errorMsg}`);
     try { await client.destroy(); } catch {}
     sessions.delete(cleanEmail);
   });
