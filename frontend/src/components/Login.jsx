@@ -33,9 +33,20 @@ export default function Login() {
   const validate = () => {
     const newErrors = {};
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!emailRegex.test(email.trim())) {
-      newErrors.email = "Ingresa un correo electrónico válido";
+    const cleanId = email.trim();
+
+    if (mode === "LOGIN") {
+      if (!cleanId) {
+        newErrors.email = "Ingresa tu correo o usuario 'admin'";
+      } else if (cleanId.toLowerCase() !== "admin" && !emailRegex.test(cleanId)) {
+        newErrors.email = "Ingresa un correo válido o 'admin'";
+      }
+    } else if (mode === "REGISTER") {
+      if (!emailRegex.test(cleanId)) {
+        newErrors.email = "Ingresa un correo electrónico válido";
+      }
     }
+
     if (mode !== "VERIFY" && (password.length < 6 || password.length > 128)) {
       newErrors.password = "La contraseña debe tener entre 6 y 128 caracteres";
     }
@@ -203,10 +214,10 @@ export default function Login() {
           {(mode === "LOGIN" || mode === "REGISTER") && (
             <>
               <div className="field">
-                <label>Correo electrónico</label>
+                <label>{mode === "LOGIN" ? "Correo electrónico o Usuario" : "Correo electrónico"}</label>
                 <input
-                  type="email"
-                  placeholder="tu@correo.com"
+                  type={mode === "LOGIN" ? "text" : "email"}
+                  placeholder={mode === "LOGIN" ? "gonzalezyonild@gmail.com o admin" : "tu@correo.com"}
                   maxLength={254}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}

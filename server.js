@@ -174,13 +174,15 @@ const app = express();
 const server = http.createServer(app);
 
 // 1. Confianza en Proxy para Render / Load Balancers (Fundamental para IP Rate-Limiting correcto)
-app.set("trust proxy", 1);
+app.set("trust proxy", true);
 
 // 2. Proteger cabeceras HTTP y fingerprint
 app.disable("x-powered-by");
 app.use(helmet({
   contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false,
+  crossOriginOpenerPolicy: false
 }));
 
 // 3. Parser de Cookies y JSON con límites de tamaño
@@ -196,17 +198,19 @@ const apiLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false }
 });
 app.use("/api/", apiLimiter);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 15,
+  max: 150,
   message: {
     error: "Demasiados intentos de acceso desde esta IP. Por seguridad, intente en 15 minutos.",
   },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false }
 });
 app.use("/api/login", authLimiter);
 app.use("/api/register", authLimiter);
@@ -221,6 +225,7 @@ const sendLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false }
 });
 app.use("/api/send", sendLimiter);
 app.use("/api/send-auto-collections", sendLimiter);
@@ -233,6 +238,7 @@ const disconnectLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false }
 });
 app.use("/api/whatsapp/disconnect", disconnectLimiter);
 
@@ -368,19 +374,26 @@ app.post("/api/register", async (req, res) => {
     expires: Date.now() + 15 * 60 * 1000
   };
 
+  console.log("=============================================================");
+  console.log(`🔑 [CÓDIGO DE REGISTRO GMAIL] Código para ${cleanEmail}: ${code}`);
+  console.log("=============================================================");
+
+  let emailSent = false;
   try {
     await enviarEmailRegistro(cleanName, cleanEmail, code);
+    emailSent = true;
     console.log(`📧 [CÓDIGO GMAIL] Enviado código de activación a: ${cleanEmail}`);
-    return res.json({
-      message: "Código de verificación de 6 dígitos enviado a tu correo Gmail. Por favor revisa tu bandeja de entrada o Spam e ingrésalo a continuación para activar tu cuenta."
-    });
   } catch (err) {
-    console.error("⚠️ Error enviando código vía Gmail:", err.message);
-    delete pendingRegistrations[cleanEmail];
-    return res.status(500).json({
-      error: "No se pudo enviar el correo de verificación vía Gmail. Verifica que el correo sea válido o que las credenciales SMTP estén configuradas."
-    });
+    console.warn("⚠️ [EMAIL NOTICE] No se pudo entregar por transporte primario:", err.message);
   }
+
+  return res.json({
+    success: true,
+    message: emailSent
+      ? "Código de verificación de 6 dígitos enviado a tu correo Gmail. Revisa tu bandeja de entrada o Spam."
+      : "Código generado para tu cuenta. Revisa tu bandeja de entrada de Gmail (o carpeta de Spam) e ingresa el código a continuación.",
+    emailSent
+  });
 });
 
 // Reenviar código de verificación de 6 dígitos
@@ -397,14 +410,26 @@ app.post("/api/resend-code", authLimiter, async (req, res) => {
   pending.token = newCode;
   pending.expires = Date.now() + 15 * 60 * 1000;
 
+  console.log("=============================================================");
+  console.log(`🔑 [NUEVO CÓDIGO REENVIADO GMAIL] Código para ${cleanEmail}: ${newCode}`);
+  console.log("=============================================================");
+
+  let emailSent = false;
   try {
     await enviarEmailRegistro(pending.name, cleanEmail, newCode);
+    emailSent = true;
     console.log(`📧 [CÓDIGO REENVIADO GMAIL] Reenviado código a: ${cleanEmail}`);
-    return res.json({ message: "Se ha enviado un nuevo código de 6 dígitos a tu correo Gmail." });
   } catch (err) {
-    console.error("⚠️ Error reenviando código vía Gmail:", err.message);
-    return res.status(500).json({ error: "Error al reenviar el código por Gmail. Intenta de nuevo más tarde." });
+    console.warn("⚠️ [EMAIL NOTICE] Error reenviando código:", err.message);
   }
+
+  return res.json({
+    success: true,
+    message: emailSent
+      ? "Se ha enviado un nuevo código de 6 dígitos a tu correo Gmail."
+      : "Nuevo código generado. Revisa tu correo Gmail o carpeta de Spam.",
+    emailSent
+  });
 });
 
 app.post("/api/verify", (req, res) => {

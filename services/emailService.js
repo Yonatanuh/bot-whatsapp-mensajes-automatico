@@ -1,4 +1,5 @@
 const nodemailer = require("nodemailer");
+const axios = require("axios");
 
 function escapeHtml(str) {
   if (!str) return "";
@@ -22,16 +23,48 @@ function getTransporter() {
     tls: {
       rejectUnauthorized: false
     },
-    connectionTimeout: 10000
+    connectionTimeout: 5000,
+    greetingTimeout: 5000,
+    socketTimeout: 5000
   });
 }
 
-async function enviarEmailRegistro(nombre, email, token) {
-  const transporter = getTransporter();
+async function sendViaVercelRelay(to, subject, html) {
+  const relayUrl = (process.env.VERCEL_RELAY_URL || "https://bot-whatsapp-mensajes-automatico.vercel.app/api/send-email").trim();
+  console.log(`📡 [EMAIL SERVICE] Intentando envío vía Relay HTTPS: ${relayUrl}`);
+  const response = await axios.post(relayUrl, {
+    to,
+    subject,
+    html
+  }, {
+    timeout: 10000,
+    headers: { "Content-Type": "application/json" }
+  });
+  if (response.data && response.data.success) {
+    console.log(`✅ [EMAIL SERVICE] Correo entregado exitosamente vía Relay HTTPS a: ${to}`);
+    return response.data;
+  }
+  throw new Error(response.data?.error || "Error en respuesta de Vercel Relay");
+}
 
-  const cleanName = escapeHtml((nombre || "Usuario").toString().trim().slice(0, 100));
-  const cleanEmail = escapeHtml((email || "").toString().trim().slice(0, 254));
+async function sendViaDirectSMTP(to, subject, htmlMsg) {
+  const transporter = getTransporter();
   const senderEmail = (process.env.SMTP_EMAIL || "gonzalezyonild@gmail.com").trim();
+  const mailOptions = {
+    from: `"Bot WhatsApp Admin" <${senderEmail}>`,
+    to,
+    subject,
+    html: htmlMsg
+  };
+  console.log(`📡 [EMAIL SERVICE] Intentando envío directo vía SMTP Gmail a: ${to}`);
+  const info = await transporter.sendMail(mailOptions);
+  console.log(`✅ [EMAIL SERVICE] Correo entregado exitosamente vía SMTP directo a: ${to}`);
+  return info;
+}
+
+async function enviarEmailRegistro(nombre, email, token) {
+  const cleanName = escapeHtml((nombre || "Usuario").toString().trim().slice(0, 100));
+  const cleanEmail = (email || "").toString().trim().slice(0, 254);
   const asunto = `WhatsApp Bot - Tu Código de Verificación: ${token}`;
 
   const htmlMsg = `<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 30px; border-radius: 12px; background: #0f172a; color: #f8fafc; border: 1px solid #1e293b;">
@@ -53,16 +86,38 @@ async function enviarEmailRegistro(nombre, email, token) {
         </p>
     </div>`;
 
-  const mailOptions = {
-    from: `"Bot WhatsApp Admin" <${senderEmail}>`,
-    to: email,
-    subject: asunto,
-    html: htmlMsg
-  };
+  let lastError = null;
 
-  const info = await transporter.sendMail(mailOptions);
-  console.log(`====== CÓDIGO DE VERIFICACIÓN ENVIADO CON ÉXITO A: ${email} ======`);
-  return info;
+  // En la nube (Render Free), los puertos SMTP 25, 465 y 587 están bloqueados a nivel de firewall.
+  // Por tanto, en producción intentamos primero vía Vercel Relay (HTTPS puerto 443).
+  // Si estamos en local (o si el relay falla), intentamos SMTP directo.
+  const isCloud = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+
+  if (isCloud) {
+    try {
+      return await sendViaVercelRelay(cleanEmail, asunto, htmlMsg);
+    } catch (errRelay) {
+      console.warn("⚠️ Falló relay HTTPS Vercel, intentando SMTP directo:", errRelay.message);
+      lastError = errRelay;
+    }
+  }
+
+  try {
+    return await sendViaDirectSMTP(cleanEmail, asunto, htmlMsg);
+  } catch (errSmtp) {
+    console.warn("⚠️ Falló SMTP directo:", errSmtp.message);
+    lastError = errSmtp;
+  }
+
+  if (!isCloud) {
+    try {
+      return await sendViaVercelRelay(cleanEmail, asunto, htmlMsg);
+    } catch (errRelay2) {
+      lastError = errRelay2;
+    }
+  }
+
+  throw lastError || new Error("No se pudo entregar el correo de verificación.");
 }
 
 module.exports = {
