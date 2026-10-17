@@ -721,9 +721,13 @@ async function getOrCreateUserSession(userEmail) {
   // Asegurar que el entorno de Chromium en la nube esté completamente resuelto
   await getChromiumEnvironment();
 
-  const authDataPath = path.join(DATA_DIR, ".wwebjs_auth");
+  const authDataPath = process.platform === "linux"
+    ? path.join("/tmp", ".wwebjs_auth")
+    : path.join(DATA_DIR, ".wwebjs_auth");
+
   const puppeteerConfig = {
     headless: true,
+    ignoreHTTPSErrors: true,
     args: [
       ...PUPPETEER_BASE_ARGS,
       `--user-agent=${DESKTOP_USER_AGENT}`
@@ -736,7 +740,8 @@ async function getOrCreateUserSession(userEmail) {
 
   const client = new Client({
     authStrategy: new LocalAuth({ clientId, dataPath: authDataPath }),
-    authTimeoutMs: 90000,
+    authTimeoutMs: 120000,
+    bypassCSP: true,
     userAgent: DESKTOP_USER_AGENT,
     puppeteer: puppeteerConfig,
     webVersionCache: {
@@ -1076,7 +1081,10 @@ app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
     sessions.delete(userEmail);
   }
   const clientId = getSessionClientId(userEmail);
-  const sessionPath = path.join(DATA_DIR, ".wwebjs_auth", `session-${clientId}`);
+  const authDataPath = process.platform === "linux"
+    ? path.join("/tmp", ".wwebjs_auth")
+    : path.join(DATA_DIR, ".wwebjs_auth");
+  const sessionPath = path.join(authDataPath, `session-${clientId}`);
   if (fs.existsSync(sessionPath)) {
     try { fs.rmSync(sessionPath, { recursive: true, force: true }); } catch {}
   }
