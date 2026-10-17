@@ -1019,7 +1019,7 @@ export default function Dashboard() {
             <div className="wa-kpi-chip">
               <span className="wa-kpi-label">Diagnóstico</span>
               <span className="wa-kpi-val" style={{ color: "var(--wa-button)" }}>
-                {apiPing ? `${apiPing}más` : 'Activo'}
+                {apiPing ? `${apiPing} ms` : 'Activo'}
               </span>
             </div>
           </div>

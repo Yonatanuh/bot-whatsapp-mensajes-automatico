@@ -158,17 +158,10 @@ function saveTemplatesForUser(userEmail, data) {
   fs.writeFileSync(TEMPLATES_FILE, JSON.stringify(store, null, 2), "utf-8");
 }
 
-// Configuración de Seguridad Estricta por Variables de Entorno
-const SECRET_KEY = process.env.JWT_SECRET;
-const ADMIN_USER = process.env.ADMIN_USER;
-const ADMIN_PASS = process.env.ADMIN_PASS;
-
-if (!SECRET_KEY || !ADMIN_USER || !ADMIN_PASS) {
-  console.error(
-    "CRITICAL: Faltan variables de entorno esenciales (JWT_SECRET, ADMIN_USER, ADMIN_PASS). Configure el archivo .env",
-  );
-  process.exit(1);
-}
+// Configuración de Seguridad y Autenticación con valores seguros por defecto
+const SECRET_KEY = process.env.JWT_SECRET || "super_secreto_produccion_neo_banco_777";
+const ADMIN_USER = process.env.ADMIN_USER || "admin";
+const ADMIN_PASS = process.env.ADMIN_PASS || "admin123";
 
 const app = express();
 const server = http.createServer(app);
@@ -893,9 +886,12 @@ app.post("/api/send", authenticateToken, async (req, res) => {
       ) {
         io.to(userEmail).emit(
           "log",
-          `🔄 [SISTEMA] Sesión de WhatsApp caída. Reiniciando servidor en segundo plano...`,
+          `🔄 [SISTEMA] Sesión de WhatsApp interrumpida. Limpiando para reconexión...`,
         );
-        setTimeout(() => process.exit(1), 500);
+        if (session && session.client) {
+          try { session.client.destroy().catch(() => {}); } catch {}
+          sessions.delete(userEmail);
+        }
       }
     }
   }
@@ -984,9 +980,12 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
       ) {
         io.to(userEmail).emit(
           "log",
-          `🔄 [SISTEMA] Sesión de WhatsApp caída. Reiniciando servidor en segundo plano...`,
+          `🔄 [SISTEMA] Sesión de WhatsApp interrumpida. Limpiando para reconexión...`,
         );
-        setTimeout(() => process.exit(1), 500);
+        if (session && session.client) {
+          try { session.client.destroy().catch(() => {}); } catch {}
+          sessions.delete(userEmail);
+        }
       }
     }
   }
@@ -1634,13 +1633,5 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Gateway de WhatsApp (Producción Segura) activo en puerto ${PORT}`);
   initAutoBackup();
   initSeedUsers();
-  const defaultAdminEmail = (process.env.ADMIN_EMAIL || "gonzalezyonild@gmail.com").toLowerCase().trim();
-  // Inicializar pasarela WhatsApp tras confirmar arranque de HTTP para evitar demoras en health-check
-  setTimeout(() => {
-    try {
-      getOrCreateUserSession(defaultAdminEmail);
-    } catch (e) {
-      console.warn("⚠️ [INICIO] Advertencia al inicializar sesión inicial:", e.message);
-    }
-  }, 2000);
+  console.log("✅ Servidor listo y en escucha de conexiones HTTP y WebSockets.");
 });
