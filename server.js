@@ -621,20 +621,7 @@ const PUPPETEER_BASE_ARGS = [
   "--disable-dev-shm-usage",
   "--disable-accelerated-2d-canvas",
   "--no-first-run",
-  "--disable-gpu",
-  "--disable-software-rasterizer",
-  "--disable-extensions",
-  "--disable-default-apps",
-  "--disable-background-networking",
-  "--disable-background-timer-throttling",
-  "--disable-backgrounding-occluded-windows",
-  "--disable-breakpad",
-  "--disable-renderer-backgrounding",
-  "--mute-audio",
-  "--disable-blink-features=AutomationControlled",
-  "--renderer-process-limit=1",
-  "--disable-features=Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider",
-  "--js-flags=--max-old-space-size=128"
+  "--disable-gpu"
 ];
 
 const DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
