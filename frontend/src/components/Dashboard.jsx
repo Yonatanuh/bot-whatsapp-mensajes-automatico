@@ -970,19 +970,19 @@ export default function Dashboard() {
             <div 
               className="px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-2"
               style={{
-                background: status === 'CONNECTED' ? 'rgba(37, 211, 102, 0.12)' : status === 'QR_READY' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(234, 0, 56, 0.12)',
-                color: status === 'CONNECTED' ? 'var(--wa-button)' : status === 'QR_READY' ? '#f59e0b' : 'var(--wa-error)',
-                border: `1px solid ${status === 'CONNECTED' ? 'rgba(37, 211, 102, 0.3)' : status === 'QR_READY' ? 'rgba(245, 158, 11, 0.3)' : 'rgba(234, 0, 56, 0.3)'}`
+                background: status === 'CONNECTED' ? 'rgba(37, 211, 102, 0.12)' : status === 'AUTHENTICATED' ? 'rgba(59, 130, 246, 0.12)' : status === 'QR_READY' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(234, 0, 56, 0.12)',
+                color: status === 'CONNECTED' ? 'var(--wa-button)' : status === 'AUTHENTICATED' ? '#3b82f6' : status === 'QR_READY' ? '#f59e0b' : 'var(--wa-error)',
+                border: `1px solid ${status === 'CONNECTED' ? 'rgba(37, 211, 102, 0.3)' : status === 'AUTHENTICATED' ? 'rgba(59, 130, 246, 0.3)' : status === 'QR_READY' ? 'rgba(245, 158, 11, 0.3)' : 'rgba(234, 0, 56, 0.3)'}`
               }}
             >
               <span 
-                className={`w-2 h-2 rounded-full ${status === 'CONNECTED' ? 'pulse-indicator' : ''}`}
+                className={`w-2 h-2 rounded-full ${status === 'CONNECTED' || status === 'AUTHENTICATED' ? 'pulse-indicator' : ''}`}
                 style={{ 
-                  background: status === 'CONNECTED' ? 'var(--wa-green)' : status === 'QR_READY' ? '#f59e0b' : 'var(--wa-error)'
+                  background: status === 'CONNECTED' ? 'var(--wa-green)' : status === 'AUTHENTICATED' ? '#3b82f6' : status === 'QR_READY' ? '#f59e0b' : 'var(--wa-error)'
                 }}
               />
               <span className="hidden sm:inline">
-                {status === 'CONNECTED' ? 'WhatsApp Enlazado' : status === 'QR_READY' ? 'Escanea el Código' : 'Desconectado'}
+                {status === 'CONNECTED' ? 'WhatsApp Enlazado' : status === 'AUTHENTICATED' ? 'Vinculando...' : status === 'QR_READY' ? 'Escanea el Código' : 'Desconectado'}
               </span>
             </div>
 
@@ -1386,6 +1386,16 @@ export default function Dashboard() {
                         Cambiar Teléfono
                       </button>
                     </div>
+                  ) : status === 'AUTHENTICATED' ? (
+                    <div className="py-4 space-y-2">
+                      <div className="flex items-center justify-center gap-2" style={{ color: "var(--wa-button)" }}>
+                        <Loader2 size={18} className="animate-spin" />
+                        <span className="text-xs font-bold">Código QR escaneado con éxito</span>
+                      </div>
+                      <p className="text-[11px]" style={{ color: "var(--wa-muted)" }}>
+                        Autenticando sesión y sincronizando mensajes...
+                      </p>
+                    </div>
                   ) : status === 'QR_READY' && qr ? (
                     <div className="py-2">
                       <div className="inline-block p-2.5 rounded-2xl bg-white border-2 shadow-sm mb-2" style={{ borderColor: "var(--wa-button)" }}>
@@ -1414,6 +1424,16 @@ export default function Dashboard() {
                       <p className="text-[11px]" style={{ color: "var(--wa-muted)" }}>
                         Iniciando pasarela de WhatsApp para tu cuenta. Por favor espera unos segundos.
                       </p>
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={handleDisconnectWhatsApp}
+                          className="text-[11px] px-3 py-1 rounded-md border font-medium transition-all hover:bg-gray-100 dark:hover:bg-gray-800"
+                          style={{ borderColor: "var(--wa-border)", color: "var(--wa-muted)" }}
+                        >
+                          ¿Tarda en responder? Forzar Generación de QR
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

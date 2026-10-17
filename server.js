@@ -616,7 +616,17 @@ function getOrCreateUserSession(userEmail) {
   if (!cleanEmail) return null;
 
   if (sessions.has(cleanEmail)) {
-    return sessions.get(cleanEmail);
+    const existing = sessions.get(cleanEmail);
+    if (existing && (existing.status === "CONNECTED" || existing.status === "QR_READY" || existing.status === "INITIALIZING" || existing.status === "AUTHENTICATED")) {
+      return existing;
+    }
+    // Si la sesión anterior estaba desconectada o rota, destruir y recrear limpiamente
+    try {
+      if (existing && existing.client) {
+        existing.client.destroy().catch(() => {});
+      }
+    } catch {}
+    sessions.delete(cleanEmail);
   }
 
   const clientId = getSessionClientId(cleanEmail);
@@ -638,13 +648,44 @@ function getOrCreateUserSession(userEmail) {
       "--disable-dev-shm-usage",
       "--disable-accelerated-2d-canvas",
       "--no-first-run",
-      "--no-zygote",
-      "--single-process",
       "--disable-gpu",
+      "--disable-software-rasterizer",
+      "--disable-extensions",
+      "--disable-default-apps",
+      "--disable-background-networking",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-breakpad",
+      "--disable-renderer-backgrounding",
+      "--mute-audio",
+      "--js-flags=--max-old-space-size=128"
     ],
   };
-  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-    puppeteerConfig.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+
+  // Detección y asignación robusta del ejecutable de Chrome/Chromium
+  let execPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (!execPath) {
+    try {
+      const puppeteer = require("puppeteer");
+      execPath = puppeteer.executablePath();
+    } catch {}
+  }
+  if (!execPath || !fs.existsSync(execPath)) {
+    const commonPaths = [
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/google-chrome",
+      "/usr/bin/chromium-browser",
+      "/usr/bin/chromium"
+    ];
+    for (const p of commonPaths) {
+      if (fs.existsSync(p)) {
+        execPath = p;
+        break;
+      }
+    }
+  }
+  if (execPath && fs.existsSync(execPath)) {
+    puppeteerConfig.executablePath = execPath;
   }
 
   const client = new Client({
@@ -655,11 +696,29 @@ function getOrCreateUserSession(userEmail) {
   sessionData.client = client;
 
   client.on("qr", async (qr) => {
-    sessionData.status = "QR_READY";
-    sessionData.qr = await qrcode.toDataURL(qr);
-    io.to(cleanEmail).emit("status", "QR_READY");
-    io.to(cleanEmail).emit("qr", sessionData.qr);
-    console.log(`📱 [QR] Código QR generado para: ${cleanEmail}`);
+    try {
+      sessionData.status = "QR_READY";
+      sessionData.qr = await qrcode.toDataURL(qr);
+      io.to(cleanEmail).emit("status", "QR_READY");
+      io.to(cleanEmail).emit("qr", sessionData.qr);
+      console.log(`📱 [QR] Código QR generado para: ${cleanEmail}`);
+    } catch (qrErr) {
+      console.error(`⚠️ [QR] Error convirtiendo código QR para ${cleanEmail}:`, qrErr.message);
+    }
+  });
+
+  client.on("authenticated", () => {
+    sessionData.status = "AUTHENTICATED";
+    sessionData.qr = "";
+    io.to(cleanEmail).emit("status", "AUTHENTICATED");
+    io.to(cleanEmail).emit("qr", "");
+    io.to(cleanEmail).emit("log", "🔐 [WHATSAPP] Código QR escaneado con éxito. Autenticando sesión...");
+    console.log(`🔐 [WHATSAPP] Autenticado para: ${cleanEmail}`);
+  });
+
+  client.on("loading_screen", (percent, message) => {
+    console.log(`⏳ [WHATSAPP] Cargando (${percent}%): ${message || ''}`);
+    io.to(cleanEmail).emit("log", `⏳ [WHATSAPP] Sincronizando chats (${percent}%)...`);
   });
 
   client.on("ready", () => {
@@ -673,19 +732,40 @@ function getOrCreateUserSession(userEmail) {
     console.log(`✅ [WHATSAPP] Sesión vinculada con éxito para: ${cleanEmail}`);
   });
 
-  client.on("disconnected", (reason) => {
+  client.on("auth_failure", async (msg) => {
+    console.error(`❌ [WHATSAPP] Fallo de autenticación para ${cleanEmail}:`, msg);
+    sessionData.status = "DISCONNECTED";
+    sessionData.qr = "";
+    io.to(cleanEmail).emit("status", "DISCONNECTED");
+    io.to(cleanEmail).emit("qr", "");
+    io.to(cleanEmail).emit("log", "⚠️ [WHATSAPP] Sesión anterior expirada o inválida. Limpiando para generar nuevo QR...");
+    try { await client.destroy(); } catch {}
+    sessions.delete(cleanEmail);
+    const sessionDir = path.join(authDataPath, `session-${clientId}`);
+    if (fs.existsSync(sessionDir)) {
+      try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  client.on("disconnected", async (reason) => {
     sessionData.status = "DISCONNECTED";
     sessionData.qr = "";
     sessionData.info = null;
     io.to(cleanEmail).emit("status", "DISCONNECTED");
     io.to(cleanEmail).emit("qr", "");
     console.log(`⚠️ [WHATSAPP] Sesión desconectada para ${cleanEmail}: ${reason}`);
+    try { await client.destroy(); } catch {}
+    sessions.delete(cleanEmail);
   });
 
-  client.initialize().catch((err) => {
+  client.initialize().catch(async (err) => {
     console.error(`⚠️ Error al inicializar WhatsApp para ${cleanEmail}:`, err.message);
     sessionData.status = "DISCONNECTED";
+    sessionData.qr = "";
     io.to(cleanEmail).emit("status", "DISCONNECTED");
+    io.to(cleanEmail).emit("log", `⚠️ Error inicializando pasarela WhatsApp: ${err.message}`);
+    try { await client.destroy(); } catch {}
+    sessions.delete(cleanEmail);
   });
 
   return sessionData;
@@ -1555,5 +1635,12 @@ server.listen(PORT, "0.0.0.0", () => {
   initAutoBackup();
   initSeedUsers();
   const defaultAdminEmail = (process.env.ADMIN_EMAIL || "gonzalezyonild@gmail.com").toLowerCase().trim();
-  getOrCreateUserSession(defaultAdminEmail);
+  // Inicializar pasarela WhatsApp tras confirmar arranque de HTTP para evitar demoras en health-check
+  setTimeout(() => {
+    try {
+      getOrCreateUserSession(defaultAdminEmail);
+    } catch (e) {
+      console.warn("⚠️ [INICIO] Advertencia al inicializar sesión inicial:", e.message);
+    }
+  }, 2000);
 });
