@@ -962,7 +962,7 @@ export default function Dashboard() {
                 title="Latencia de respuesta del servidor Express"
               >
                 <Zap size={11} />
-                <span>{apiPing} más API</span>
+                <span>{apiPing} ms API</span>
               </div>
             )}
 

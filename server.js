@@ -18,6 +18,21 @@ const bcrypt = require("bcryptjs");
 const { encryptField, decryptField } = require("./services/cryptoService");
 const { createBackup, restoreBackup, getBackupDownloadData, listBackups, initAutoBackup } = require("./services/backupService");
 
+// ── BUFFER DE LOGS DEL SISTEMA PARA DIAGNÓSTICO EN NUBE ──
+const systemLogs = [];
+const origLog = console.log;
+const origWarn = console.warn;
+const origError = console.error;
+
+function recordSystemLog(level, args) {
+  const text = args.map(a => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ");
+  systemLogs.push({ time: new Date().toISOString(), level, text: text.slice(0, 1000) });
+  if (systemLogs.length > 80) systemLogs.shift();
+}
+console.log = (...args) => { recordSystemLog("info", args); origLog.apply(console, args); };
+console.warn = (...args) => { recordSystemLog("warn", args); origWarn.apply(console, args); };
+console.error = (...args) => { recordSystemLog("error", args); origError.apply(console, args); };
+
 // ── PERSISTENCIA DE DATOS Y CLIENTES ──
 let DATA_DIR = __dirname;
 if (process.env.DATA_DIR) {
@@ -600,27 +615,55 @@ io.use((socket, next) => {
 // ── SISTEMA MULTI-SESIÓN WHATSAPP (AISLADO POR CUENTA) ──
 const sessions = new Map();
 
+const PUPPETEER_BASE_ARGS = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-accelerated-2d-canvas",
+  "--no-first-run",
+  "--disable-gpu",
+  "--disable-software-rasterizer",
+  "--disable-extensions",
+  "--disable-default-apps",
+  "--disable-background-networking",
+  "--disable-background-timer-throttling",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-breakpad",
+  "--disable-renderer-backgrounding",
+  "--mute-audio",
+  "--disable-blink-features=AutomationControlled"
+];
+
+const DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
 let resolvedChromiumExecutable = null;
-let resolvedChromiumArgs = null;
 let chromiumInitPromise = null;
 
 function getChromiumEnvironment() {
   if (!chromiumInitPromise) {
     chromiumInitPromise = (async () => {
-      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+      // 1. Variable de entorno explícita (e.g. configurada en Render)
+      if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
         resolvedChromiumExecutable = process.env.PUPPETEER_EXECUTABLE_PATH;
+        console.log(`🧭 [CHROMIUM] Usando PUPPETEER_EXECUTABLE_PATH: ${resolvedChromiumExecutable}`);
         return;
       }
-      if (process.platform === "linux") {
-        try {
-          const sparticuz = require("@sparticuz/chromium").default || require("@sparticuz/chromium");
-          resolvedChromiumExecutable = await sparticuz.executablePath();
-          resolvedChromiumArgs = sparticuz.args;
-          console.log(`🧭 [CHROMIUM LINUX] Binario autónomo Sparticuz Chromium listo en: ${resolvedChromiumExecutable}`);
+
+      // 2. Comprobar si Puppeteer descargó Google Chrome de forma nativa
+      try {
+        const puppeteer = require("puppeteer");
+        const pPath = puppeteer.executablePath();
+        if (pPath && fs.existsSync(pPath)) {
+          resolvedChromiumExecutable = pPath;
+          console.log(`🧭 [CHROMIUM] Usando Google Chrome de Puppeteer: ${resolvedChromiumExecutable}`);
           return;
-        } catch (e) {
-          console.warn("⚠️ [CHROMIUM] Fallback desde Sparticuz:", e.message);
         }
+      } catch (e) {
+        console.warn("ℹ️ [CHROMIUM] Puppeteer executablePath directo no disponible:", e.message);
+      }
+
+      // 3. Binarios comunes del sistema en entornos Linux
+      if (process.platform === "linux") {
         const commonPaths = [
           "/usr/bin/google-chrome-stable",
           "/usr/bin/google-chrome",
@@ -630,14 +673,24 @@ function getChromiumEnvironment() {
         for (const p of commonPaths) {
           if (fs.existsSync(p)) {
             resolvedChromiumExecutable = p;
+            console.log(`🧭 [CHROMIUM] Usando binario Linux del sistema: ${p}`);
             return;
           }
         }
+
+        // 4. Fallback autónomo: @sparticuz/chromium (se usa SOLO su binario descomprimido, sin flags restrictivos de Lambda)
+        try {
+          const sparticuz = require("@sparticuz/chromium").default || require("@sparticuz/chromium");
+          const spPath = await sparticuz.executablePath();
+          if (spPath && fs.existsSync(spPath)) {
+            resolvedChromiumExecutable = spPath;
+            console.log(`🧭 [CHROMIUM LINUX] Binario autónomo Sparticuz listo en: ${resolvedChromiumExecutable}`);
+            return;
+          }
+        } catch (e) {
+          console.warn("⚠️ [CHROMIUM] Fallback desde Sparticuz no disponible:", e.message);
+        }
       }
-      try {
-        const puppeteer = require("puppeteer");
-        resolvedChromiumExecutable = puppeteer.executablePath();
-      } catch {}
     })();
   }
   return chromiumInitPromise;
@@ -682,26 +735,10 @@ async function getOrCreateUserSession(userEmail) {
   const authDataPath = path.join(DATA_DIR, ".wwebjs_auth");
   const puppeteerConfig = {
     headless: true,
-    args: (resolvedChromiumArgs && Array.isArray(resolvedChromiumArgs) && resolvedChromiumArgs.length > 0)
-      ? Array.from(new Set([...resolvedChromiumArgs, "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]))
-      : [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-accelerated-2d-canvas",
-          "--no-first-run",
-          "--disable-gpu",
-          "--disable-software-rasterizer",
-          "--disable-extensions",
-          "--disable-default-apps",
-          "--disable-background-networking",
-          "--disable-background-timer-throttling",
-          "--disable-backgrounding-occluded-windows",
-          "--disable-breakpad",
-          "--disable-renderer-backgrounding",
-          "--mute-audio",
-          "--js-flags=--max-old-space-size=128"
-        ],
+    args: [
+      ...PUPPETEER_BASE_ARGS,
+      `--user-agent=${DESKTOP_USER_AGENT}`
+    ]
   };
 
   if (resolvedChromiumExecutable && fs.existsSync(resolvedChromiumExecutable)) {
@@ -711,6 +748,7 @@ async function getOrCreateUserSession(userEmail) {
   const client = new Client({
     authStrategy: new LocalAuth({ clientId, dataPath: authDataPath }),
     authTimeoutMs: 90000,
+    userAgent: DESKTOP_USER_AGENT,
     puppeteer: puppeteerConfig,
   });
 
@@ -1121,7 +1159,7 @@ function deleteUserAccount(targetEmail) {
 
   // 5. Borrar carpeta de sesión en disco
   try {
-    const clientId = crypto.createHash("sha256").update(emailKey).digest("hex").slice(0, 16);
+    const clientId = getSessionClientId(emailKey);
     const sessionPath = path.join(DATA_DIR, ".wwebjs_auth", `session-${clientId}`);
     if (fs.existsSync(sessionPath)) {
       fs.rmSync(sessionPath, { recursive: true, force: true });
@@ -1435,6 +1473,14 @@ app.get("/api/test/health", authenticateToken, async (req, res) => {
   if (req.user && req.user.role === "ADMIN") {
     const memory = process.memoryUsage();
     responseData.activeSessions = sessions.size;
+    responseData.resolvedChromiumExecutable = resolvedChromiumExecutable;
+    responseData.sessions = Array.from(sessions.entries()).map(([email, s]) => ({
+      email,
+      status: s.status,
+      hasQr: Boolean(s.qr),
+      qrLength: s.qr ? s.qr.length : 0
+    }));
+    responseData.recentLogs = systemLogs.slice(-25);
     responseData.memoryMB = {
       rss: (memory.rss / (1024 * 1024)).toFixed(1),
       heapUsed: (memory.heapUsed / (1024 * 1024)).toFixed(1),
