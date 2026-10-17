@@ -16,7 +16,7 @@ const rateLimit = require("express-rate-limit");
 const bcrypt = require("bcryptjs");
 
 const { encryptField, decryptField } = require("./services/cryptoService");
-const { createBackup, listBackups, initAutoBackup } = require("./services/backupService");
+const { createBackup, restoreBackup, getBackupDownloadData, listBackups, initAutoBackup } = require("./services/backupService");
 
 // ── PERSISTENCIA DE DATOS Y CLIENTES ──
 let DATA_DIR = __dirname;
@@ -968,6 +968,109 @@ app.get("/api/users", authenticateToken, authorizeAdmin, (req, res) => {
   res.json(safeUsers);
 });
 
+// Función para eliminar completamente un usuario y todos sus datos relacionados
+function deleteUserAccount(targetEmail) {
+  if (!targetEmail) return false;
+  const emailKey = targetEmail.toLowerCase().trim();
+
+  // 1. Eliminar de users.json
+  const users = loadUsers();
+  const initialUserCount = users.length;
+  const filteredUsers = users.filter(u => (u.email || "").toLowerCase().trim() !== emailKey);
+  if (filteredUsers.length !== initialUserCount) {
+    saveUsers(filteredUsers);
+  }
+
+  // 2. Eliminar sus clientes de clients.json
+  const allClients = loadClients();
+  const filteredClients = allClients.filter(c => (c.ownerEmail || "").toLowerCase().trim() !== emailKey);
+  saveClients(filteredClients);
+
+  // 3. Eliminar sus plantillas de templates.json
+  const store = loadAllTemplatesStore();
+  if (store[emailKey]) {
+    delete store[emailKey];
+    try {
+      fs.writeFileSync(TEMPLATES_FILE, JSON.stringify(store, null, 2), "utf-8");
+    } catch (e) {
+      console.warn("⚠️ Error guardando templates tras eliminar cuenta:", e.message);
+    }
+  }
+
+  // 4. Destruir sesión activa de WhatsApp en memoria si existe
+  const session = sessions.get(emailKey);
+  if (session && session.client) {
+    try {
+      session.client.destroy();
+    } catch (e) {
+      console.warn("⚠️ Error destruyendo cliente al eliminar cuenta:", e.message);
+    }
+    sessions.delete(emailKey);
+  }
+
+  // 5. Borrar carpeta de sesión en disco
+  try {
+    const clientId = crypto.createHash("sha256").update(emailKey).digest("hex").slice(0, 16);
+    const sessionPath = path.join(DATA_DIR, ".wwebjs_auth", `session-${clientId}`);
+    if (fs.existsSync(sessionPath)) {
+      fs.rmSync(sessionPath, { recursive: true, force: true });
+    }
+  } catch (err) {
+    console.warn("⚠️ Error limpiando archivos de sesión en disco:", err.message);
+  }
+
+  console.log(`🗑️ [CUENTA ELIMINADA] Usuario y todos sus datos eliminados: "${emailKey}"`);
+  return true;
+}
+
+// DELETE: Eliminar cuenta propia del usuario autenticado
+app.delete("/api/account", authenticateToken, (req, res) => {
+  const userEmail = req.user.email.toLowerCase().trim();
+  const envAdminEmail = (process.env.ADMIN_EMAIL || "gonzalezyonild@gmail.com").toLowerCase().trim();
+
+  // Protección: la cuenta superadmin no puede auto-eliminarse para prevenir bloqueo del sistema
+  if (userEmail === envAdminEmail || userEmail === "admin") {
+    return res.status(403).json({
+      error: "La cuenta de Administrador Principal del sistema no puede ser eliminada."
+    });
+  }
+
+  deleteUserAccount(userEmail);
+  res.clearCookie("token", { httpOnly: true, secure: true, sameSite: "None" });
+  return res.json({
+    success: true,
+    message: "Tu cuenta y toda tu información han sido eliminadas exitosamente."
+  });
+});
+
+// DELETE: Eliminar cuenta de usuario por parte del Administrador
+app.delete("/api/users/:email", authenticateToken, authorizeAdmin, (req, res) => {
+  const targetEmail = (req.params.email || "").toLowerCase().trim();
+  const envAdminEmail = (process.env.ADMIN_EMAIL || "gonzalezyonild@gmail.com").toLowerCase().trim();
+
+  if (!targetEmail) {
+    return res.status(400).json({ error: "El correo del usuario es requerido." });
+  }
+
+  if (targetEmail === envAdminEmail || targetEmail === "admin") {
+    return res.status(403).json({
+      error: "No se puede eliminar la cuenta de Administrador Principal del sistema."
+    });
+  }
+
+  const users = loadUsers();
+  const userExists = users.some(u => (u.email || "").toLowerCase().trim() === targetEmail);
+  if (!userExists) {
+    return res.status(404).json({ error: "Usuario no encontrado." });
+  }
+
+  deleteUserAccount(targetEmail);
+  return res.json({
+    success: true,
+    message: `Cuenta de usuario ${targetEmail} eliminada correctamente junto con sus datos.`
+  });
+});
+
 // GET: Listar copias de seguridad de la plataforma (Solo Administrador)
 app.get("/api/admin/backups", authenticateToken, authorizeAdmin, (req, res) => {
   res.json(listBackups());
@@ -986,6 +1089,54 @@ app.post("/api/admin/backup", authenticateToken, authorizeAdmin, (req, res) => {
     console.error("⚠️ Error generando backup:", err.message);
     res.status(500).json({ error: "Error al generar la copia de seguridad." });
   }
+});
+
+// POST: Restaurar copia de seguridad (Solo Administrador)
+app.post("/api/admin/backup/restore/:folder", authenticateToken, authorizeAdmin, (req, res) => {
+  const folder = req.params.folder;
+  try {
+    const result = restoreBackup(folder);
+    initSeedUsers(); // Asegurar sincronización de credenciales de admin
+    io.to(req.user.email.toLowerCase()).emit(
+      "log",
+      `♻️ [RESPALDO RESTAURADO] Base de datos restaurada con éxito desde: ${folder}`
+    );
+    return res.json({
+      success: true,
+      message: `Copia de seguridad "${folder}" restaurada con éxito.`,
+      result
+    });
+  } catch (err) {
+    console.error("⚠️ Error restaurando backup:", err.message);
+    return res.status(500).json({ error: err.message || "Error al restaurar la copia de seguridad." });
+  }
+});
+
+// GET: Descargar archivo completo de respaldo en JSON (Solo Administrador)
+app.get("/api/admin/backup/:folder/download", authenticateToken, authorizeAdmin, (req, res) => {
+  const folder = req.params.folder;
+  try {
+    const data = getBackupDownloadData(folder);
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="${folder}.json"`);
+    return res.send(JSON.stringify(data, null, 2));
+  } catch (err) {
+    return res.status(404).json({ error: err.message || "Respaldo no encontrado." });
+  }
+});
+
+// GET: Exportar clientes propios del usuario en formato JSON para respaldo personal
+app.get("/api/clients/export", authenticateToken, (req, res) => {
+  const userEmail = req.user.email.toLowerCase();
+  const clients = loadClientsForUser(userEmail);
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", `attachment; filename="mis_clientes_${Date.now()}.json"`);
+  return res.json({
+    owner: userEmail,
+    exportedAt: new Date().toISOString(),
+    total: clients.length,
+    clients
+  });
 });
 
 // GET: Obtener plantillas personales de la cuenta

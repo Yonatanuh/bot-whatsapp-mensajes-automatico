@@ -9,7 +9,7 @@ import {
   Copy, Check, Video, Phone, MoreVertical, Paperclip, Smile,
   Mic, Wifi, Battery, Sun, Moon, FlaskConical, Zap, RefreshCw,
   Server, Cpu, CheckCircle2, AlertCircle, UserPlus, UserMinus,
-  Search, Plus, Pencil, Save
+  Search, Plus, Pencil, Save, Download, RotateCcw, AlertTriangle
 } from 'lucide-react';
 import './Dashboard.css';
 
@@ -392,6 +392,108 @@ export default function Dashboard() {
       showToast('error', err.response?.data?.error || 'Error al generar respaldo.');
     } finally {
       setBackupLoading(false);
+    }
+  };
+
+  const handleRestoreBackup = async (folderName) => {
+    if (!window.confirm(`⚠️ ATENCIÓN: ¿Deseas restaurar la base de datos desde la copia "${folderName}"?\n\nLos datos actuales de clientes, usuarios y plantillas serán reemplazados por los de este respaldo.`)) {
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setBackupLoading(true);
+    try {
+      const res = await axios.post(`${API_BASE}/api/admin/backup/restore/${encodeURIComponent(folderName)}`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      showToast('success', res.data.message || 'Copia de seguridad restaurada exitosamente.');
+      fetchBackups();
+      fetchClients();
+      fetchTemplates();
+      fetchPlatformUsers();
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'Error al restaurar la copia de seguridad.');
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const handleDownloadBackup = async (folderName) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      showToast('info', `Descargando respaldo "${folderName}"...`);
+      const res = await axios.get(`${API_BASE}/api/admin/backup/${encodeURIComponent(folderName)}/download`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${folderName}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('success', 'Archivo de respaldo descargado correctamente.');
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'Error al descargar respaldo.');
+    }
+  };
+
+  const handleExportClients = () => {
+    if (clients.length === 0) {
+      showToast('warn', 'No hay clientes registrados en tu directorio para exportar.');
+      return;
+    }
+    const dataStr = JSON.stringify(clients, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `directorio_clientes_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('success', `Exportados ${clients.length} clientes a archivo JSON.`);
+  };
+
+  const handleDeleteOwnAccount = async () => {
+    const confirmText = prompt(
+      '⚠️ PELIGRO: Esta acción eliminará permanentemente tu cuenta, tu sesión de WhatsApp, tu lista de clientes y tus plantillas de mensajes.\n\nPara confirmar, escribe "ELIMINAR" a continuación:'
+    );
+    if (confirmText !== 'ELIMINAR') {
+      if (confirmText !== null) showToast('warn', 'Eliminación cancelada. Debes escribir "ELIMINAR" exactamente.');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`${API_BASE}/api/account`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      localStorage.removeItem('token');
+      alert('Tu cuenta ha sido eliminada permanentemente. Gracias por haber usado la plataforma.');
+      navigate('/login');
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'Error al eliminar cuenta.');
+    }
+  };
+
+  const handleDeleteUserByAdmin = async (targetEmail) => {
+    if (!window.confirm(`¿Estás seguro de que deseas eliminar permanentemente la cuenta de "${targetEmail}" y todos sus clientes y datos asociados?`)) {
+      return;
+    }
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.delete(`${API_BASE}/api/users/${encodeURIComponent(targetEmail)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      showToast('success', res.data.message || `Usuario "${targetEmail}" eliminado.`);
+      fetchPlatformUsers();
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'Error al eliminar usuario.');
     }
   };
 
@@ -1868,6 +1970,17 @@ export default function Dashboard() {
 
                         <button
                           type="button"
+                          onClick={handleExportClients}
+                          disabled={clients.length === 0}
+                          className="btn-wa-secondary text-xs py-2 px-3.5"
+                          title="Descargar copia de seguridad de clientes en JSON"
+                        >
+                          <Download size={13} />
+                          <span className="hidden sm:inline">Descargar BD</span>
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={handleSyncClientsToMassSend}
                           disabled={clients.length === 0}
                           className="btn-wa-primary text-xs py-2 px-3.5"
@@ -2076,6 +2189,16 @@ export default function Dashboard() {
                             {u.verifiedAt && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{ background: "rgba(37, 211, 102, 0.12)", color: "var(--wa-green)" }}>Verificado</span>}
                           </div>
                         </div>
+                        {u.role !== 'ADMIN' && u.email !== userEmail && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUserByAdmin(u.email)}
+                            className="p-2 rounded-lg text-red-500 hover:bg-red-500/10 transition"
+                            title="Eliminar usuario y sus datos"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2111,7 +2234,7 @@ export default function Dashboard() {
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {backups.slice(0, 5).map((b, idx) => (
+                    {backups.slice(0, 8).map((b, idx) => (
                       <div key={idx} className="p-3 rounded-xl border flex items-center justify-between text-xs" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
                         <div className="flex items-center gap-2">
                           <CheckCircle2 size={14} style={{ color: "var(--wa-button)" }} />
@@ -2119,12 +2242,36 @@ export default function Dashboard() {
                             <span className="font-bold block" style={{ color: "var(--wa-text)" }}>{b.folder}</span>
                             <span className="text-[10px]" style={{ color: "var(--wa-muted)" }}>
                               {b.manifest?.createdAt ? new Date(b.manifest.createdAt).toLocaleString() : 'Fecha desconocida'} • Origen: {b.manifest?.trigger || 'AUTO'}
+                              {b.manifest?.stats && ` • ${b.manifest.stats.clients || 0} clientes, ${b.manifest.stats.users || 0} usuarios`}
                             </span>
                           </div>
                         </div>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(37, 211, 102, 0.12)", color: "var(--wa-green)" }}>
-                          {b.manifest?.hasAuthSession ? 'BD + Sesión QR' : 'Base de Datos'}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(37, 211, 102, 0.12)", color: "var(--wa-green)" }}>
+                            {b.manifest?.hasAuthSession ? 'BD + Sesión QR' : 'Base de Datos'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadBackup(b.folder)}
+                            className="p-1.5 rounded-lg border text-xs flex items-center gap-1 hover:bg-black/5 dark:hover:bg-white/5"
+                            style={{ borderColor: "var(--wa-border)", color: "var(--wa-text)" }}
+                            title="Descargar respaldo JSON"
+                          >
+                            <Download size={12} />
+                            <span className="hidden sm:inline">Descargar</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRestoreBackup(b.folder)}
+                            disabled={backupLoading}
+                            className="p-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                            style={{ background: "rgba(245, 158, 11, 0.15)", color: "#d97706" }}
+                            title="Restaurar base de datos a este punto"
+                          >
+                            <RotateCcw size={12} />
+                            <span className="hidden sm:inline">Restaurar</span>
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2211,6 +2358,25 @@ export default function Dashboard() {
                     ACTIVO (24H)
                   </span>
                 </div>
+              </div>
+
+              {/* Zona de Peligro: Eliminar Cuenta */}
+              <div className="p-4 rounded-xl border border-red-500/30 mt-6" style={{ background: "rgba(239, 68, 68, 0.05)" }}>
+                <div className="flex items-center gap-2 mb-2 text-red-500 font-bold text-sm">
+                  <AlertTriangle size={17} />
+                  <span>Zona de Peligro</span>
+                </div>
+                <p className="text-xs mb-4" style={{ color: "var(--wa-muted)" }}>
+                  Al eliminar tu cuenta se borrarán permanentemente tu acceso, tus clientes registrados, tus plantillas personalizadas y tu sesión activa de WhatsApp. Esta acción no se puede deshacer.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleDeleteOwnAccount}
+                  className="py-2 px-3.5 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 transition flex items-center gap-1.5 shadow-sm"
+                >
+                  <Trash2 size={14} />
+                  <span>Eliminar mi Cuenta</span>
+                </button>
               </div>
             </div>
           )}

@@ -1,9 +1,23 @@
 const fs = require("fs");
 const path = require("path");
 
-const ROOT_DIR = process.env.DATA_DIR || path.join(__dirname, "..");
+function getDataDir() {
+  if (process.env.DATA_DIR) {
+    try {
+      if (!fs.existsSync(process.env.DATA_DIR)) {
+        fs.mkdirSync(process.env.DATA_DIR, { recursive: true });
+      }
+      return process.env.DATA_DIR;
+    } catch {
+      return path.join(__dirname, "..");
+    }
+  }
+  return path.join(__dirname, "..");
+}
+
+const ROOT_DIR = getDataDir();
 const BACKUPS_DIR = path.join(ROOT_DIR, "backups");
-const MAX_BACKUPS_TO_KEEP = 7; // Conservar los últimos 7 respaldos
+const MAX_BACKUPS_TO_KEEP = 10; // Conservar los últimos 10 respaldos
 
 function ensureBackupDir() {
   if (!fs.existsSync(BACKUPS_DIR)) {
@@ -51,14 +65,29 @@ function createBackup(trigger = "AUTOMATIC_DAILY") {
 
   const filesToBackup = ["users.json", "clients.json", "templates.json"];
   const copiedFiles = [];
+  const stats = { users: 0, clients: 0, templates: 0 };
 
-  // 1. Respaldar archivos JSON de la base de datos
+  // 1. Respaldar archivos JSON de la base de datos y calcular estadísticas
   for (const file of filesToBackup) {
     const src = path.join(ROOT_DIR, file);
     if (fs.existsSync(src)) {
-      const dest = path.join(targetPath, file);
-      fs.copyFileSync(src, dest);
-      copiedFiles.push(file);
+      try {
+        const rawContent = fs.readFileSync(src, "utf-8");
+        const dest = path.join(targetPath, file);
+        fs.writeFileSync(dest, rawContent, "utf-8");
+        copiedFiles.push(file);
+
+        const parsed = JSON.parse(rawContent);
+        if (file === "users.json" && Array.isArray(parsed)) {
+          stats.users = parsed.length;
+        } else if (file === "clients.json" && Array.isArray(parsed)) {
+          stats.clients = parsed.length;
+        } else if (file === "templates.json" && typeof parsed === "object") {
+          stats.templates = Object.keys(parsed).length;
+        }
+      } catch (err) {
+        console.warn(`⚠️ Error copiando archivo de respaldo ${file}:`, err.message);
+      }
     }
   }
 
@@ -71,22 +100,117 @@ function createBackup(trigger = "AUTOMATIC_DAILY") {
     authBackedUp = true;
   }
 
-  // 3. Crear manifiesto de respaldo
+  // 3. Crear manifiesto de respaldo enriquecido
   const manifest = {
     folder: folderName,
     createdAt: new Date().toISOString(),
     trigger,
     files: copiedFiles,
     hasAuthSession: authBackedUp,
-    version: "2.0.0"
+    stats,
+    version: "2.1.0"
   };
   fs.writeFileSync(path.join(targetPath, "manifest.json"), JSON.stringify(manifest, null, 2), "utf-8");
 
   // 4. Limpieza: Eliminar respaldos más antiguos que el límite
   purgeOldBackups();
 
-  console.log(`💾 [BACKUP] Respaldo generado con éxito: ${folderName} (Origen: ${trigger})`);
+  console.log(`💾 [BACKUP] Respaldo generado con éxito: ${folderName} (${stats.clients} clientes, ${stats.users} usuarios)`);
   return manifest;
+}
+
+/**
+ * Restaura una copia de seguridad específica
+ * @param {string} folderName - Nombre de la carpeta de respaldo
+ */
+function restoreBackup(folderName) {
+  if (!folderName || !/^[a-zA-Z0-9_\-]+$/.test(folderName)) {
+    throw new Error("Nombre de carpeta de respaldo inválido.");
+  }
+
+  ensureBackupDir();
+  const sourcePath = path.join(BACKUPS_DIR, folderName);
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error(`La copia de seguridad "${folderName}" no existe.`);
+  }
+
+  const restoredFiles = [];
+  const filesToRestore = ["users.json", "clients.json", "templates.json"];
+
+  for (const file of filesToRestore) {
+    const backupFile = path.join(sourcePath, file);
+    if (fs.existsSync(backupFile)) {
+      const dest = path.join(ROOT_DIR, file);
+      fs.copyFileSync(backupFile, dest);
+      restoredFiles.push(file);
+    }
+  }
+
+  // Restaurar sesión de WhatsApp si existe en el respaldo
+  const backupAuth = path.join(sourcePath, ".wwebjs_auth");
+  let authRestored = false;
+  if (fs.existsSync(backupAuth)) {
+    const destAuth = path.join(ROOT_DIR, ".wwebjs_auth");
+    copyDirSafe(backupAuth, destAuth);
+    authRestored = true;
+  }
+
+  console.log(`♻️ [BACKUP RESTORE] Respaldo restaurado con éxito desde: ${folderName}`);
+  return {
+    success: true,
+    folder: folderName,
+    restoredFiles,
+    hasAuthSession: authRestored
+  };
+}
+
+/**
+ * Retorna los datos completos de un respaldo para descarga/exportación
+ * @param {string} folderName
+ */
+function getBackupDownloadData(folderName) {
+  if (!folderName || !/^[a-zA-Z0-9_\-]+$/.test(folderName)) {
+    throw new Error("Nombre de respaldo inválido.");
+  }
+
+  ensureBackupDir();
+  const folderPath = path.join(BACKUPS_DIR, folderName);
+  if (!fs.existsSync(folderPath)) {
+    throw new Error("Respaldo no encontrado.");
+  }
+
+  const manifestPath = path.join(folderPath, "manifest.json");
+  let manifest = {};
+  if (fs.existsSync(manifestPath)) {
+    try { manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8")); } catch {}
+  }
+
+  let users = [];
+  const usersPath = path.join(folderPath, "users.json");
+  if (fs.existsSync(usersPath)) {
+    try { users = JSON.parse(fs.readFileSync(usersPath, "utf-8")); } catch {}
+  }
+
+  let clients = [];
+  const clientsPath = path.join(folderPath, "clients.json");
+  if (fs.existsSync(clientsPath)) {
+    try { clients = JSON.parse(fs.readFileSync(clientsPath, "utf-8")); } catch {}
+  }
+
+  let templates = {};
+  const templatesPath = path.join(folderPath, "templates.json");
+  if (fs.existsSync(templatesPath)) {
+    try { templates = JSON.parse(fs.readFileSync(templatesPath, "utf-8")); } catch {}
+  }
+
+  return {
+    folder: folderName,
+    exportedAt: new Date().toISOString(),
+    manifest,
+    users,
+    clients,
+    templates
+  };
 }
 
 /**
@@ -120,7 +244,7 @@ function purgeOldBackups() {
 }
 
 /**
- * Lista todos los respaldos disponibles para el Administrador (sin exponer rutas internas del sistema)
+ * Lista todos los respaldos disponibles para el Administrador
  */
 function listBackups() {
   ensureBackupDir();
@@ -138,7 +262,12 @@ function listBackups() {
         }
         return {
           folder: name,
-          manifest: manifest || { createdAt: fs.statSync(fullPath).mtime.toISOString(), trigger: "LEGACY" }
+          manifest: manifest || {
+            folder: name,
+            createdAt: fs.statSync(fullPath).mtime.toISOString(),
+            trigger: "LEGACY",
+            stats: { users: 0, clients: 0 }
+          }
         };
       })
       .sort((a, b) => new Date(b.manifest.createdAt).getTime() - new Date(a.manifest.createdAt).getTime());
@@ -175,6 +304,8 @@ function initAutoBackup() {
 
 module.exports = {
   createBackup,
+  restoreBackup,
+  getBackupDownloadData,
   listBackups,
   initAutoBackup
 };
