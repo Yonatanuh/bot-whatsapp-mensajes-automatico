@@ -46,6 +46,39 @@ function loadUsers() {
 function saveUsers(users) {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
 }
+
+function initSeedUsers() {
+  try {
+    const users = loadUsers();
+    const adminEmail = (process.env.ADMIN_EMAIL || "gonzalezyonild@gmail.com").toLowerCase().trim();
+    const adminPass = (process.env.ADMIN_PASS || "admin123").trim();
+    const hashedPass = bcrypt.hashSync(adminPass, 10);
+
+    const adminIndex = users.findIndex(u => (u.email || "").toLowerCase() === adminEmail);
+    if (adminIndex === -1) {
+      users.unshift({
+        name: "Administrador",
+        email: adminEmail,
+        password: hashedPass,
+        role: "ADMIN",
+        verifiedAt: new Date().toISOString()
+      });
+      saveUsers(users);
+      console.log(`👤 [USUARIOS] Cuenta de administrador inicializada para: ${adminEmail}`);
+    } else {
+      const current = users[adminIndex];
+      const isMatch = bcrypt.compareSync(adminPass, current.password);
+      if (!isMatch) {
+        users[adminIndex].password = hashedPass;
+        users[adminIndex].role = "ADMIN";
+        saveUsers(users);
+        console.log(`👤 [USUARIOS] Contraseña de administrador sincronizada para: ${adminEmail}`);
+      }
+    }
+  } catch (err) {
+    console.error("⚠️ Error inicializando usuarios semilla:", err.message);
+  }
+}
 let pendingRegistrations = {};
 
 const CLIENTS_FILE = path.join(DATA_DIR, "clients.json");
@@ -418,16 +451,36 @@ app.post("/api/login", (req, res) => {
     return res.status(400).json({ error: "Credenciales requeridas." });
   }
 
+  const cleanPass = password.trim();
   const identifier = rawId.toString().trim().toLowerCase().slice(0, 254);
-  const envAdminEmail = (process.env.ADMIN_EMAIL || "admin@gateway.com").toLowerCase().trim();
+  const envAdminEmail = (process.env.ADMIN_EMAIL || "gonzalezyonild@gmail.com").toLowerCase().trim();
   const envAdminUser = (process.env.ADMIN_USER || "admin").toLowerCase().trim();
-  const envAdminPass = process.env.ADMIN_PASS;
+  const envAdminPass = (process.env.ADMIN_PASS || "admin123").trim();
 
-  // 1. Acceso de Super Administrador con protección de tiempo constante
-  const isAdminIdentifier = (identifier === envAdminEmail || identifier === envAdminUser);
-  if (isAdminIdentifier && safeCompare(password, envAdminPass)) {
-    const token = jwt.sign({ role: "ADMIN", email: envAdminEmail }, SECRET_KEY, { expiresIn: "24h" });
+  // 1. Acceso de Super Administrador (admite 'admin' o el correo oficial con 'admin123' o variable de entorno)
+  const isAdminIdentifier = (
+    identifier === envAdminEmail ||
+    identifier === "gonzalezyonild@gmail.com" ||
+    identifier === envAdminUser ||
+    identifier === "admin"
+  );
+
+  const isPassCorrect = (
+    password === envAdminPass ||
+    cleanPass === envAdminPass ||
+    password === "admin123" ||
+    cleanPass === "admin123" ||
+    safeCompare(password, envAdminPass) ||
+    safeCompare(cleanPass, envAdminPass) ||
+    safeCompare(password, "admin123") ||
+    safeCompare(cleanPass, "admin123")
+  );
+
+  if (isAdminIdentifier && isPassCorrect) {
+    const adminEmailToUse = envAdminEmail || "gonzalezyonild@gmail.com";
+    const token = jwt.sign({ role: "ADMIN", email: adminEmailToUse }, SECRET_KEY, { expiresIn: "24h" });
     setAuthCookie(res, token);
+    console.log(`🔑 [LOGIN SUCCESS] Administrador autenticado con éxito: "${identifier}"`);
     return res.json({ token, message: "Login exitoso como Administrador." });
   }
 
@@ -438,28 +491,31 @@ app.post("/api/login", (req, res) => {
   if (userIndex !== -1) {
     const user = users[userIndex];
     const isMatch = (user.password && (user.password.startsWith("$2a$") || user.password.startsWith("$2b$")))
-      ? bcrypt.compareSync(password, user.password)
-      : safeCompare(password, user.password);
+      ? (bcrypt.compareSync(password, user.password) || bcrypt.compareSync(cleanPass, user.password))
+      : (safeCompare(password, user.password) || safeCompare(cleanPass, user.password) || user.password === password);
 
     if (isMatch) {
       // Auto-upgrade de seguridad si existía en texto plano
       if (user.password && !user.password.startsWith("$2")) {
-        users[userIndex].password = bcrypt.hashSync(password, 10);
+        users[userIndex].password = bcrypt.hashSync(cleanPass, 10);
         saveUsers(users);
       }
 
-      // El rol ADMIN solo se asigna si en la base de datos es ADMIN o es el ADMIN_EMAIL de entorno
-      const assignedRole = (user.role === "ADMIN" || user.email.toLowerCase() === envAdminEmail)
-        ? "ADMIN"
-        : "USER";
+      const assignedRole = (
+        user.role === "ADMIN" ||
+        user.email.toLowerCase() === envAdminEmail ||
+        user.email.toLowerCase() === "gonzalezyonild@gmail.com"
+      ) ? "ADMIN" : "USER";
 
       const token = jwt.sign({ role: assignedRole, email: user.email }, SECRET_KEY, { expiresIn: "24h" });
       setAuthCookie(res, token);
+      console.log(`🔑 [LOGIN SUCCESS] Usuario autenticado con éxito: "${identifier}"`);
       return res.json({ token, message: "Login exitoso." });
     }
   }
 
-  return res.status(401).json({ error: "Credenciales inválidas." });
+  console.warn(`⚠️ [LOGIN FAIL] Intento fallido para identificador: "${identifier}"`);
+  return res.status(401).json({ error: "Credenciales inválidas. Verifica tu correo y contraseña." });
 });
 
 // Endpoint seguro para cerrar sesión y limpiar cookies
@@ -1321,6 +1377,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Gateway de WhatsApp (Producción Segura) activo en puerto ${PORT}`);
   initAutoBackup();
-  const defaultAdminEmail = (process.env.ADMIN_EMAIL || "admin@gateway.com").toLowerCase().trim();
+  initSeedUsers();
+  const defaultAdminEmail = (process.env.ADMIN_EMAIL || "gonzalezyonild@gmail.com").toLowerCase().trim();
   getOrCreateUserSession(defaultAdminEmail);
 });
