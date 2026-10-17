@@ -631,7 +631,10 @@ const PUPPETEER_BASE_ARGS = [
   "--disable-breakpad",
   "--disable-renderer-backgrounding",
   "--mute-audio",
-  "--disable-blink-features=AutomationControlled"
+  "--disable-blink-features=AutomationControlled",
+  "--renderer-process-limit=1",
+  "--disable-features=Translate,OptimizationHints,MediaRouter,DialMediaRouteProvider",
+  "--js-flags=--max-old-space-size=128"
 ];
 
 const DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -717,6 +720,18 @@ async function getOrCreateUserSession(userEmail) {
       }
     } catch {}
     sessions.delete(cleanEmail);
+  }
+
+  // Control estricto de memoria en la nube (Render Free Tier 512MB RAM):
+  // Limpiar cualquier otra sesión que no esté CONNECTED para evitar duplicación de navegadores
+  for (const [otherEmail, s] of sessions.entries()) {
+    if (otherEmail !== cleanEmail && s.status !== "CONNECTED") {
+      console.log(`🧹 [MEMORIA] Cerrando sesión huérfana de (${otherEmail}) para abrir paso a (${cleanEmail})`);
+      if (s.client) {
+        try { s.client.destroy().catch(() => {}); } catch {}
+      }
+      sessions.delete(otherEmail);
+    }
   }
 
   const clientId = getSessionClientId(cleanEmail);
@@ -1442,7 +1457,7 @@ app.delete("/api/clients", authenticateToken, (req, res) => {
 // 1. Health Check & Métricas del Servidor
 app.get("/api/test/health", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
-  const session = await getOrCreateUserSession(userEmail);
+  const session = sessions.get(userEmail);
   const uptimeSec = Math.floor(process.uptime());
   const hours = Math.floor(uptimeSec / 3600);
   const minutes = Math.floor((uptimeSec % 3600) / 60);
@@ -1504,7 +1519,7 @@ app.get("/api/health", (req, res) => {
 // 2. Ping / Medidor de Latencia
 app.post("/api/test/ping", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
-  const session = await getOrCreateUserSession(userEmail);
+  const session = sessions.get(userEmail);
   res.json({
     pong: true,
     clientTimestamp: req.body.timestamp || null,
