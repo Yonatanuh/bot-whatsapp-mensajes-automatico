@@ -93,11 +93,28 @@ export default function Login() {
         localStorage.setItem("token", res.data.token);
         navigate("/dashboard");
       } else {
-        setApiSuccess(res.data.message || "Código enviado a tu correo.");
+        setApiSuccess(res.data.message || "Código enviado a tu correo Gmail.");
         setMode("VERIFY");
       }
     } catch (err) {
       setApiError(err.response?.data?.error || "Error al registrar la cuenta.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    if (loading) return;
+    setApiError(""); setApiSuccess("");
+    setLoading(true);
+    try {
+      const cleanEmail = email.trim().toLowerCase();
+      const res = await axios.post(`${API_BASE}/api/resend-code`, {
+        email: cleanEmail
+      }, { withCredentials: true });
+      setApiSuccess(res.data.message || "Se ha enviado un nuevo código a tu correo Gmail.");
+    } catch (err) {
+      setApiError(err.response?.data?.error || "Error al reenviar el código.");
     } finally {
       setLoading(false);
     }
@@ -140,11 +157,11 @@ export default function Login() {
           <svg viewBox="0 0 24 24" width="64" height="64" fill="#fff"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l4.9-1.4A10 10 0 1 0 12 2zm5.2 14.1c-.2.6-1.2 1.2-1.7 1.2-.4.1-1 .1-1.6-.1-.4-.1-.9-.3-1.5-.6-2.7-1.2-4.4-3.9-4.5-4.1-.1-.2-1.1-1.4-1.1-2.7s.7-1.9.9-2.200c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.3 0 .5l-.3.4-.4.4c-.1.1-.3.3-.1.6.2.3.7 1.200 1.600 1.900 1.100 1 2 1.300 2.300 1.400.3.1.4.1.6-.1l.8-1c.2-.3.4-.2.600-.1l1.900.9c.3.1.5.2.5.3.1.2.1.700-.1 1.300z" /></svg>
         </div>
 
-        <h1>{mode === "LOGIN" ? "Iniciar sesión" : mode === "REGISTER" ? "Registro" : "Verificación"}</h1>
+        <h1>{mode === "LOGIN" ? "Iniciar sesión" : mode === "REGISTER" ? "Registro" : "Verificación por Correo"}</h1>
         <p className="subtitle">
           {mode === "LOGIN" ? "Bienvenido de nuevo, te estábamos esperando" : 
-           mode === "REGISTER" ? "Crea tu cuenta gratis y accede de inmediato" : 
-           "Revisa tu correo por el código de 6 dígitos"}
+           mode === "REGISTER" ? "Crea tu cuenta y valida tu código de Gmail" : 
+           "Ingresa el código de 6 dígitos que enviamos a tu correo Gmail"}
         </p>
 
         {apiError && <div className="api-error-banner">{apiError}</div>}
@@ -220,7 +237,7 @@ export default function Login() {
 
           {mode === "VERIFY" && (
             <div className="field">
-              <label>Código de verificación</label>
+              <label>Código de verificación (6 dígitos)</label>
               <input
                 type="text"
                 placeholder="123456"
@@ -228,8 +245,26 @@ export default function Login() {
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                 className={errors.code ? "invalid" : ""}
+                style={{ textAlign: "center", fontSize: "22px", letterSpacing: "6px", fontFamily: "monospace" }}
               />
               {errors.code && <span className="error">{errors.code}</span>}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px", fontSize: "13px" }}>
+                <button
+                  type="button"
+                  onClick={handleResendCode}
+                  disabled={loading}
+                  style={{ background: "none", border: "none", color: "#00a884", cursor: "pointer", textDecoration: "underline", padding: 0 }}
+                >
+                  Reenviar código por Gmail
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMode("REGISTER"); setCode(""); setApiError(""); setApiSuccess(""); }}
+                  style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", textDecoration: "underline", padding: 0 }}
+                >
+                  Cambiar datos
+                </button>
+              </div>
             </div>
           )}
 

@@ -34,27 +34,30 @@ async function enviarEmailRegistro(nombre, email, token) {
   const transporter = getTransporter();
   if (!transporter) {
     console.warn("⚠️ [EMAIL SERVICE] SMTP_EMAIL o SMTP_PASSWORD no configurados en variables de entorno. Omitiendo notificación por correo.");
-    return null;
+    throw new Error("Servicio SMTP no configurado en el servidor.");
   }
 
   const cleanName = escapeHtml((nombre || "Usuario").toString().trim().slice(0, 100));
   const cleanEmail = escapeHtml((email || "").toString().trim().slice(0, 254));
   const senderEmail = (process.env.SMTP_EMAIL || "").trim();
-  const frontendUrl = process.env.FRONTEND_URL || "https://bot-whatsapp-mensajes-automatico.vercel.app";
-  const asunto = "¡Bienvenido a WhatsApp Bot! Tu cuenta ha sido activada";
+  const asunto = `WhatsApp Bot - Tu Código de Verificación: ${token}`;
 
   const htmlMsg = `<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 30px; border-radius: 12px; background: #0f172a; color: #f8fafc; border: 1px solid #1e293b;">
         <div style="text-align: center; margin-bottom: 25px;">
             <h1 style="color: #25d366; margin: 0; font-size: 26px;">WhatsApp Bot</h1>
-            <p style="color: #94a3b8; font-size: 14px; margin-top: 5px;">Gateway de Pagos y Notificaciones</p>
+            <p style="color: #94a3b8; font-size: 14px; margin-top: 5px;">Activación de Cuenta Segura</p>
         </div>
         <p style="font-size: 16px; line-height: 1.5;">Hola <strong>${cleanName}</strong>,</p>
-        <p style="font-size: 15px; color: #cbd5e1; line-height: 1.5;">¡Tu cuenta ha sido creada y activada con éxito! Ya puedes acceder a tu panel de control, vincular tu WhatsApp mediante código QR y automatizar tus cobranzas.</p>
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="${escapeHtml(frontendUrl)}" style="background: #00a884; color: #ffffff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px; display: inline-block;">Acceder a mi Panel</a>
+        <p style="font-size: 15px; color: #cbd5e1; line-height: 1.5;">Para completar tu registro y activar tu cuenta, ingresa el siguiente código de verificación de 6 dígitos en la aplicación:</p>
+        
+        <div style="text-align: center; margin: 25px 0; padding: 18px; background: #1e293b; border-radius: 10px; border: 2px solid #00a884;">
+            <span style="font-size: 34px; font-weight: bold; letter-spacing: 8px; color: #25d366; font-family: 'Courier New', monospace; display: inline-block;">${escapeHtml(token)}</span>
         </div>
+
+        <p style="font-size: 13px; color: #94a3b8; text-align: center;">⏱️ Este código expirará en <strong>15 minutos</strong>.</p>
         <p style="font-size: 13px; color: #64748b; text-align: center; border-top: 1px solid #1e293b; padding-top: 15px;">
-            Tu correo de acceso es: <strong style="color: #94a3b8;">${cleanEmail}</strong>
+            Si no solicitaste este registro en WhatsApp Bot, puedes ignorar este correo de forma segura.<br>
+            <span style="font-size: 12px; color: #475569;">Nota: Si no encuentras el correo en tu bandeja principal, revisa la carpeta de <strong>Spam</strong> o Correo no deseado.</span>
         </p>
     </div>`;
 
@@ -66,6 +69,7 @@ async function enviarEmailRegistro(nombre, email, token) {
   };
 
   const info = await transporter.sendMail(mailOptions);
+  console.log(`====== CÓDIGO DE VERIFICACIÓN ENVIADO CON ÉXITO A: ${email} ======`);
   return info;
 }
 

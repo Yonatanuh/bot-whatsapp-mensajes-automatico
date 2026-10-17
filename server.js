@@ -326,28 +326,52 @@ app.post("/api/register", async (req, res) => {
     return res.status(400).json({ error: "El correo ya está registrado." });
   }
 
-  const hashedPassword = bcrypt.hashSync(password, 10);
-  users.push({
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  pendingRegistrations[cleanEmail] = {
     name: cleanName,
     email: cleanEmail,
-    password: hashedPassword,
-    role: "USER",
-    verifiedAt: new Date().toISOString()
-  });
-  saveUsers(users);
+    password,
+    token: code,
+    expires: Date.now() + 15 * 60 * 1000
+  };
 
-  const token = jwt.sign({ role: "USER", email: cleanEmail }, SECRET_KEY, { expiresIn: "24h" });
-  setAuthCookie(res, token);
+  try {
+    await enviarEmailRegistro(cleanName, cleanEmail, code);
+    console.log(`📧 [CÓDIGO GMAIL] Enviado código de activación a: ${cleanEmail}`);
+    return res.json({
+      message: "Código de verificación de 6 dígitos enviado a tu correo Gmail. Por favor revisa tu bandeja de entrada o Spam e ingrésalo a continuación para activar tu cuenta."
+    });
+  } catch (err) {
+    console.error("⚠️ Error enviando código vía Gmail:", err.message);
+    delete pendingRegistrations[cleanEmail];
+    return res.status(500).json({
+      error: "No se pudo enviar el correo de verificación vía Gmail. Verifica que el correo sea válido o que las credenciales SMTP estén configuradas."
+    });
+  }
+});
 
-  enviarEmailRegistro(cleanName, cleanEmail, "ACTIVADA")
-    .then(() => console.log(`📧 [EMAIL BIENVENIDA] Enviado exitosamente a: ${cleanEmail}`))
-    .catch((err) => console.warn(`⚠️ [EMAIL BIENVENIDA] No se pudo entregar: ${err.message}`));
+// Reenviar código de verificación de 6 dígitos
+app.post("/api/resend-code", authLimiter, async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "El correo es obligatorio." });
+  const cleanEmail = email.toString().trim().toLowerCase().slice(0, 254);
+  const pending = pendingRegistrations[cleanEmail];
+  if (!pending) {
+    return res.status(400).json({ error: "No hay registro pendiente para este correo. Por favor regístrate nuevamente." });
+  }
 
-  return res.json({
-    token,
-    message: "¡Cuenta creada exitosamente! Bienvenido al sistema.",
-    user: { name: cleanName, email: cleanEmail }
-  });
+  const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+  pending.token = newCode;
+  pending.expires = Date.now() + 15 * 60 * 1000;
+
+  try {
+    await enviarEmailRegistro(pending.name, cleanEmail, newCode);
+    console.log(`📧 [CÓDIGO REENVIADO GMAIL] Reenviado código a: ${cleanEmail}`);
+    return res.json({ message: "Se ha enviado un nuevo código de 6 dígitos a tu correo Gmail." });
+  } catch (err) {
+    console.error("⚠️ Error reenviando código vía Gmail:", err.message);
+    return res.status(500).json({ error: "Error al reenviar el código por Gmail. Intenta de nuevo más tarde." });
+  }
 });
 
 app.post("/api/verify", (req, res) => {
@@ -361,13 +385,13 @@ app.post("/api/verify", (req, res) => {
   }
 
   const pending = pendingRegistrations[cleanEmail];
-  if (!pending) return res.status(400).json({ error: "No hay registro pendiente o expiró." });
+  if (!pending) return res.status(400).json({ error: "No hay registro pendiente o el código expiró." });
   if (pending.expires < Date.now()) {
     delete pendingRegistrations[cleanEmail];
-    return res.status(400).json({ error: "El código de verificación ha expirado." });
+    return res.status(400).json({ error: "El código de verificación ha expirado. Por favor regístrate nuevamente." });
   }
   if (!safeCompare(pending.token, cleanCode)) {
-    return res.status(400).json({ error: "Código incorrecto." });
+    return res.status(400).json({ error: "Código de verificación incorrecto. Revisa tu correo Gmail." });
   }
 
   const users = loadUsers();
@@ -384,7 +408,7 @@ app.post("/api/verify", (req, res) => {
 
   const token = jwt.sign({ role: "USER", email: pending.email }, SECRET_KEY, { expiresIn: "24h" });
   setAuthCookie(res, token);
-  res.json({ token, message: "Registro exitoso." });
+  res.json({ token, message: "¡Cuenta verificada y activada con éxito! Bienvenido al sistema." });
 });
 
 app.post("/api/login", (req, res) => {
