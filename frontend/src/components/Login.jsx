@@ -67,8 +67,13 @@ export default function Login() {
     setLoading(true);
     try {
       const res = await axios.post(`${API_BASE}/api/register`, { name, email, password });
-      setApiSuccess(res.data.message);
-      setMode("VERIFY");
+      if (res.data?.token) {
+        localStorage.setItem("token", res.data.token);
+        navigate("/dashboard");
+      } else {
+        setApiSuccess(res.data.message);
+        setMode("VERIFY");
+      }
     } catch (err) {
       setApiError(err.response?.data?.error || "Error al registrar.");
     } finally {
