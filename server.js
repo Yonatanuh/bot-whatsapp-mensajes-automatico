@@ -722,18 +722,6 @@ async function getOrCreateUserSession(userEmail) {
     sessions.delete(cleanEmail);
   }
 
-  // Control estricto de memoria en la nube (Render Free Tier 512MB RAM):
-  // Limpiar cualquier otra sesión que no esté CONNECTED para evitar duplicación de navegadores
-  for (const [otherEmail, s] of sessions.entries()) {
-    if (otherEmail !== cleanEmail && s.status !== "CONNECTED") {
-      console.log(`🧹 [MEMORIA] Cerrando sesión huérfana de (${otherEmail}) para abrir paso a (${cleanEmail})`);
-      if (s.client) {
-        try { s.client.destroy().catch(() => {}); } catch {}
-      }
-      sessions.delete(otherEmail);
-    }
-  }
-
   const clientId = getSessionClientId(cleanEmail);
   const sessionData = {
     client: null,
