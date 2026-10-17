@@ -9,6 +9,13 @@
 frontend/.env
 frontend/.env*
 !frontend/.env.example
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.sqlite
+*.db
 
 # ── SESIONES PRIVADAS WHATSAPP & CACHE CHROMIUM ──
 .wwebjs_auth/

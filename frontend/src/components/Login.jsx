@@ -1,10 +1,10 @@
-
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import "./Login.css";
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
+axios.defaults.withCredentials = true;
 
 export default function Login() {
   const [mode, setMode] = useState("LOGIN"); // LOGIN, REGISTER, VERIFY
@@ -22,20 +22,28 @@ export default function Login() {
   const [darkMode, setDarkMode] = useState(false);
   const navigate = useNavigate();
 
+  useEffect(() => {
+    // Si ya existe una sesión previa, redirigir al Dashboard
+    const token = localStorage.getItem("token");
+    if (token) {
+      navigate("/dashboard");
+    }
+  }, [navigate]);
+
   const validate = () => {
     const newErrors = {};
-    const emailRegex = /\S+@\S+\.\S+/;
-    if (!emailRegex.test(email)) {
-      newErrors.email = "Ingresa un correo válido";
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email.trim())) {
+      newErrors.email = "Ingresa un correo electrónico válido";
     }
-    if (mode !== "VERIFY" && password.length < 6) {
-      newErrors.password = "Mínimo 6 caracteres";
+    if (mode !== "VERIFY" && (password.length < 6 || password.length > 128)) {
+      newErrors.password = "La contraseña debe tener entre 6 y 128 caracteres";
     }
-    if (mode === "REGISTER" && name.trim().length < 2) {
-      newErrors.name = "Ingresa tu nombre";
+    if (mode === "REGISTER" && (name.trim().length < 2 || name.trim().length > 100)) {
+      newErrors.name = "Ingresa tu nombre (entre 2 y 100 caracteres)";
     }
-    if (mode === "VERIFY" && code.length !== 6) {
-      newErrors.code = "El código debe ser de 6 dígitos";
+    if (mode === "VERIFY" && !/^\d{6}$/.test(code.trim())) {
+      newErrors.code = "El código debe ser de 6 dígitos numéricos";
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -43,18 +51,25 @@ export default function Login() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    if (loading) return;
     setApiError(""); setApiSuccess("");
     if (!validate()) return;
     setLoading(true);
     try {
-      const res = await axios.post(`${API_BASE}/api/login`, { username: email, email, password });
+      const cleanEmail = email.trim().toLowerCase();
+      const res = await axios.post(`${API_BASE}/api/login`, {
+        username: cleanEmail,
+        email: cleanEmail,
+        password
+      }, { withCredentials: true });
+
       if (res.data?.token) {
         localStorage.setItem("token", res.data.token);
-        if (remember) localStorage.setItem("remembered_user", email);
+        if (remember) localStorage.setItem("remembered_user", cleanEmail);
         navigate("/dashboard");
       }
     } catch (err) {
-      setApiError(err.response?.data?.error || "Credenciales incorrectas.");
+      setApiError(err.response?.data?.error || "Credenciales incorrectas o servidor no disponible.");
     } finally {
       setLoading(false);
     }
@@ -62,20 +77,27 @@ export default function Login() {
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    if (loading) return;
     setApiError(""); setApiSuccess("");
     if (!validate()) return;
     setLoading(true);
     try {
-      const res = await axios.post(`${API_BASE}/api/register`, { name, email, password });
+      const cleanEmail = email.trim().toLowerCase();
+      const res = await axios.post(`${API_BASE}/api/register`, {
+        name: name.trim(),
+        email: cleanEmail,
+        password
+      }, { withCredentials: true });
+
       if (res.data?.token) {
         localStorage.setItem("token", res.data.token);
         navigate("/dashboard");
       } else {
-        setApiSuccess(res.data.message);
+        setApiSuccess(res.data.message || "Código enviado a tu correo.");
         setMode("VERIFY");
       }
     } catch (err) {
-      setApiError(err.response?.data?.error || "Error al registrar.");
+      setApiError(err.response?.data?.error || "Error al registrar la cuenta.");
     } finally {
       setLoading(false);
     }
@@ -83,11 +105,17 @@ export default function Login() {
 
   const handleVerify = async (e) => {
     e.preventDefault();
+    if (loading) return;
     setApiError(""); setApiSuccess("");
     if (!validate()) return;
     setLoading(true);
     try {
-      const res = await axios.post(`${API_BASE}/api/verify`, { email, code });
+      const cleanEmail = email.trim().toLowerCase();
+      const res = await axios.post(`${API_BASE}/api/verify`, {
+        email: cleanEmail,
+        code: code.trim()
+      }, { withCredentials: true });
+
       if (res.data?.token) {
         localStorage.setItem("token", res.data.token);
         navigate("/dashboard");
@@ -143,7 +171,14 @@ export default function Login() {
           {mode === "REGISTER" && (
             <div className="field">
               <label>Nombre</label>
-              <input type="text" placeholder="Tu nombre" value={name} onChange={(e) => setName(e.target.value)} className={errors.name ? "invalid" : ""} />
+              <input
+                type="text"
+                placeholder="Tu nombre"
+                maxLength={100}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className={errors.name ? "invalid" : ""}
+              />
               {errors.name && <span className="error">{errors.name}</span>}
             </div>
           )}
@@ -152,14 +187,28 @@ export default function Login() {
             <>
               <div className="field">
                 <label>Correo electrónico</label>
-                <input type="text" placeholder="tu@correo.com" value={email} onChange={(e) => setEmail(e.target.value)} className={errors.email ? "invalid" : ""} />
+                <input
+                  type="email"
+                  placeholder="tu@correo.com"
+                  maxLength={254}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className={errors.email ? "invalid" : ""}
+                />
                 {errors.email && <span className="error">{errors.email}</span>}
               </div>
 
               <div className="field">
                 <label>Contraseña</label>
                 <div className="password-wrapper">
-                  <input type={showPassword ? "text" : "password"} placeholder="••••••" value={password} onChange={(e) => setPassword(e.target.value)} className={errors.password ? "invalid" : ""} />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••"
+                    maxLength={128}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={errors.password ? "invalid" : ""}
+                  />
                   <button type="button" className="toggle" onClick={() => setShowPassword((s) => !s)}>
                     {showPassword ? "Ocultar" : "Mostrar"}
                   </button>
@@ -172,7 +221,14 @@ export default function Login() {
           {mode === "VERIFY" && (
             <div className="field">
               <label>Código de verificación</label>
-              <input type="text" placeholder="123456" maxLength={6} value={code} onChange={(e) => setCode(e.target.value)} className={errors.code ? "invalid" : ""} />
+              <input
+                type="text"
+                placeholder="123456"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                className={errors.code ? "invalid" : ""}
+              />
               {errors.code && <span className="error">{errors.code}</span>}
             </div>
           )}

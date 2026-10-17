@@ -14,6 +14,7 @@ import {
 import './Dashboard.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+axios.defaults.withCredentials = true;
 
 const PLANTILLAS = [
   { 
@@ -206,12 +207,25 @@ export default function Dashboard() {
     fetchTemplates();
     fetchStatus();
 
+    // Interceptor para expiración de sesión (401/403)
+    const interceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+          localStorage.removeItem('token');
+          navigate('/login');
+        }
+        return Promise.reject(error);
+      }
+    );
+
     // Sondeo de estado inicial mientras WhatsApp arranca
     const statusInterval = setInterval(() => {
       fetchStatus();
     }, 4000);
 
     return () => {
+      axios.interceptors.response.eject(interceptor);
       clearInterval(statusInterval);
       socketRef.current?.disconnect();
     };
@@ -288,7 +302,10 @@ export default function Dashboard() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
   }, [logs]);
 
-  const handleLogout = () => { 
+  const handleLogout = async () => { 
+    try {
+      await axios.post(`${API_BASE}/api/logout`, {}, { withCredentials: true });
+    } catch {}
     localStorage.removeItem('token'); 
     navigate('/login'); 
   };
@@ -361,6 +378,7 @@ export default function Dashboard() {
   };
 
   const handleCreateBackup = async () => {
+    if (backupLoading) return;
     const token = localStorage.getItem('token');
     if (!token) return;
     setBackupLoading(true);
@@ -379,6 +397,7 @@ export default function Dashboard() {
 
   const handleSaveClient = async (e) => {
     if (e) e.preventDefault();
+    if (clientAdding) return;
     if (!newClientNombre.trim() || !newClientNumero.trim()) {
       showToast('error', 'El nombre y el número telefónico son obligatorios.');
       return;
@@ -479,6 +498,7 @@ export default function Dashboard() {
 
   // 1. Envío de Campaña Masiva
   const handleSend = async () => {
+    if (loading) return;
     const nums = numbers.split(/[\n,;]+/).map(n => n.trim()).filter(Boolean);
     if (!nums.length || !message.trim()) { 
       showToast('error', 'Por favor ingrese al menos un destinatario y el mensaje.'); 
@@ -510,6 +530,7 @@ export default function Dashboard() {
 
   // 1.5 Envío Automático a Contactos de Cobro
   const handleAutoCollection = async () => {
+    if (loading) return;
     if (!message.trim()) {
       showToast('error', 'Por favor redacte la plantilla del mensaje en la Consola de Envíos antes de iniciar el cobro automático.');
       return;
@@ -543,6 +564,7 @@ export default function Dashboard() {
 
   // 2. Envío de Prueba Individual (Direct Single Test)
   const handleSingleTest = async () => {
+    if (testLoading) return;
     if (!testNumber.trim() || !testMessage.trim()) {
       showToast('error', 'Ingrese número de prueba y mensaje.');
       return;
@@ -567,6 +589,7 @@ export default function Dashboard() {
 
   // 3. Comprobación de Número en WhatsApp
   const handleCheckNumber = async () => {
+    if (checkLoading) return;
     if (!testNumber.trim()) {
       showToast('error', 'Ingrese el número a comprobar en la casilla de arriba.');
       return;
@@ -595,6 +618,7 @@ export default function Dashboard() {
 
   // 4. Simulación de Campaña Masiva (Dry-run / Sandbox)
   const handleSimulate = async () => {
+    if (simulating) return;
     setSimulating(true);
     try {
       const token = localStorage.getItem('token');
@@ -612,6 +636,7 @@ export default function Dashboard() {
 
   // 5. Reinicio de Sesión WhatsApp
   const handleRestartClient = async () => {
+    if (restartingClient) return;
     if (!window.confirm('¿Desea reiniciar la conexión de WhatsApp y regenerar el código QR?')) return;
     setRestartingClient(true);
     try {
@@ -1035,6 +1060,7 @@ export default function Dashboard() {
                         onChange={e => setMessage(e.target.value)}
                         readOnly={!isEditingMessage}
                         rows={5}
+                        maxLength={4096}
                         className={`wa-textarea transition-all duration-300 ${isEditingMessage ? 'focus:ring-2 focus:ring-[#00a884]' : 'opacity-85'}`}
                         style={{ 
                           background: "var(--wa-input-bg)", 
@@ -1407,6 +1433,7 @@ export default function Dashboard() {
                         type="text"
                         value={testNumber}
                         onChange={e => setTestNumber(e.target.value)}
+                        maxLength={20}
                         className="wa-textarea"
                         placeholder="18095550123"
                       />
@@ -1420,6 +1447,7 @@ export default function Dashboard() {
                         value={testMessage}
                         onChange={e => setTestMessage(e.target.value)}
                         rows={2}
+                        maxLength={4096}
                         className="wa-textarea"
                       />
                     </div>
@@ -1495,6 +1523,7 @@ export default function Dashboard() {
                         type="text"
                         value={testNumber}
                         onChange={e => setTestNumber(e.target.value)}
+                        maxLength={20}
                         className="wa-textarea"
                         placeholder="18095550123"
                       />
@@ -1729,6 +1758,7 @@ export default function Dashboard() {
                               type="text"
                               value={newClientNombre}
                               onChange={e => setNewClientNombre(e.target.value)}
+                              maxLength={100}
                               placeholder="ej: María Gómez"
                               className="wa-textarea"
                               required
@@ -1745,6 +1775,7 @@ export default function Dashboard() {
                               type="text"
                               value={newClientNumero}
                               onChange={e => setNewClientNumero(e.target.value)}
+                              maxLength={20}
                               placeholder="ej: 18095550123"
                               className="wa-textarea"
                               required
@@ -1760,6 +1791,7 @@ export default function Dashboard() {
                             type="text"
                             value={newClientNota}
                             onChange={e => setNewClientNota(e.target.value)}
+                            maxLength={500}
                             placeholder="ej: Factura #104 - RD$ 3,500"
                             className="wa-textarea"
                           />
@@ -1803,6 +1835,7 @@ export default function Dashboard() {
                           type="text"
                           value={clientSearch}
                           onChange={e => setClientSearch(e.target.value)}
+                          maxLength={100}
                           placeholder="Buscar por nombre, teléfono o nota..."
                           className="wa-textarea pl-9 text-xs"
                         />

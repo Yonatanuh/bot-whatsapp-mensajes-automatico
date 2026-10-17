@@ -85,7 +85,7 @@ function createBackup(trigger = "AUTOMATIC_DAILY") {
   // 4. Limpieza: Eliminar respaldos más antiguos que el límite
   purgeOldBackups();
 
-  console.log(`💾 [BACKUP] Respaldo exitoso generado en: backups/${folderName} (Origen: ${trigger})`);
+  console.log(`💾 [BACKUP] Respaldo generado con éxito: ${folderName} (Origen: ${trigger})`);
   return manifest;
 }
 
@@ -96,7 +96,7 @@ function purgeOldBackups() {
   try {
     ensureBackupDir();
     const items = fs.readdirSync(BACKUPS_DIR)
-      .filter(name => name.startsWith("backup_"))
+      .filter(name => name.startsWith("backup_") && /^[a-zA-Z0-9_\-]+$/.test(name))
       .map(name => {
         const fullPath = path.join(BACKUPS_DIR, name);
         return {
@@ -120,13 +120,13 @@ function purgeOldBackups() {
 }
 
 /**
- * Lista todos los respaldos disponibles para el Administrador
+ * Lista todos los respaldos disponibles para el Administrador (sin exponer rutas internas del sistema)
  */
 function listBackups() {
   ensureBackupDir();
   try {
     const items = fs.readdirSync(BACKUPS_DIR)
-      .filter(name => name.startsWith("backup_"))
+      .filter(name => name.startsWith("backup_") && /^[a-zA-Z0-9_\-]+$/.test(name))
       .map(name => {
         const fullPath = path.join(BACKUPS_DIR, name);
         const manifestPath = path.join(fullPath, "manifest.json");
@@ -138,7 +138,6 @@ function listBackups() {
         }
         return {
           folder: name,
-          path: fullPath,
           manifest: manifest || { createdAt: fs.statSync(fullPath).mtime.toISOString(), trigger: "LEGACY" }
         };
       })
@@ -154,7 +153,6 @@ function listBackups() {
  */
 function initAutoBackup() {
   ensureBackupDir();
-  // Verificar si hay algún respaldo hecho en las últimas 24 horas
   const backups = listBackups();
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
   const now = Date.now();
@@ -165,7 +163,6 @@ function initAutoBackup() {
     createBackup("AUTOMATIC_DAILY");
   }
 
-  // Programar respaldo cada 24 horas
   setInterval(() => {
     try {
       console.log("⏰ [BACKUP] Ejecutando respaldo diario programado...");
@@ -181,4 +178,3 @@ module.exports = {
   listBackups,
   initAutoBackup
 };
-

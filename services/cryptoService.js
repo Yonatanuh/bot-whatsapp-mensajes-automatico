@@ -1,9 +1,18 @@
 const crypto = require("crypto");
 
 // Clave criptográfica de 256 bits (32 bytes)
-const MASTER_SECRET = process.env.DATA_ENCRYPTION_KEY || process.env.JWT_SECRET || "neobanco_secure_vault_master_key_2026!";
+const MASTER_SECRET = process.env.DATA_ENCRYPTION_KEY || process.env.JWT_SECRET;
+if (!MASTER_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    console.error("CRITICAL: DATA_ENCRYPTION_KEY o JWT_SECRET no están definidos. Cifrado en producción requiere una clave segura.");
+    process.exit(1);
+  } else {
+    console.warn("⚠️ [CRYPTO] Usando clave temporal para entorno de desarrollo. Configure DATA_ENCRYPTION_KEY para producción.");
+  }
+}
+const SECRET_TO_USE = MASTER_SECRET || "dev_local_encryption_key_not_for_prod_123";
 const SALT = "neobanco_data_at_rest_salt_v1";
-const KEY = crypto.scryptSync(MASTER_SECRET, SALT, 32);
+const KEY = crypto.scryptSync(SECRET_TO_USE, SALT, 32);
 const ALGORITHM = "aes-256-gcm";
 
 /**
@@ -44,7 +53,7 @@ function decryptField(cipherText) {
     if (parts.length < 5) return cipherText;
     const iv = Buffer.from(parts[2], "hex");
     const authTag = Buffer.from(parts[3], "hex");
-    const encryptedHex = parts[4];
+    const encryptedHex = parts.slice(4).join(":");
 
     const decipher = crypto.createDecipheriv(ALGORITHM, KEY, iv);
     decipher.setAuthTag(authTag);
@@ -61,4 +70,3 @@ module.exports = {
   encryptField,
   decryptField
 };
-

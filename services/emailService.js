@@ -1,36 +1,60 @@
 const nodemailer = require("nodemailer");
 
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function getTransporter() {
-  const user = (process.env.SMTP_EMAIL || "gonzalezyonild@gmail.com").trim();
-  const pass = (process.env.SMTP_PASSWORD || "icgucczrdktyssae").trim();
+  const user = process.env.SMTP_EMAIL ? process.env.SMTP_EMAIL.trim() : "";
+  const pass = process.env.SMTP_PASSWORD ? process.env.SMTP_PASSWORD.trim() : "";
+
+  if (!user || !pass) {
+    return null;
+  }
 
   return nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
+    host: process.env.SMTP_HOST || "smtp.gmail.com",
+    port: parseInt(process.env.SMTP_PORT || "465", 10),
+    secure: process.env.SMTP_SECURE === "false" ? false : true,
     auth: { user, pass },
     tls: {
-      rejectUnauthorized: false
+      rejectUnauthorized: true
     },
     connectionTimeout: 10000
   });
 }
 
 async function enviarEmailRegistro(nombre, email, token) {
-  const senderEmail = (process.env.SMTP_EMAIL || "gonzalezyonild@gmail.com").trim();
+  const transporter = getTransporter();
+  if (!transporter) {
+    console.warn("⚠️ [EMAIL SERVICE] SMTP_EMAIL o SMTP_PASSWORD no configurados en variables de entorno. Omitiendo notificación por correo.");
+    return null;
+  }
+
+  const cleanName = escapeHtml((nombre || "Usuario").toString().trim().slice(0, 100));
+  const cleanEmail = escapeHtml((email || "").toString().trim().slice(0, 254));
+  const senderEmail = (process.env.SMTP_EMAIL || "").trim();
+  const frontendUrl = process.env.FRONTEND_URL || "https://bot-whatsapp-mensajes-automatico.vercel.app";
   const asunto = "¡Bienvenido a WhatsApp Bot! Tu cuenta ha sido activada";
+
   const htmlMsg = `<div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 30px; border-radius: 12px; background: #0f172a; color: #f8fafc; border: 1px solid #1e293b;">
         <div style="text-align: center; margin-bottom: 25px;">
             <h1 style="color: #25d366; margin: 0; font-size: 26px;">WhatsApp Bot</h1>
             <p style="color: #94a3b8; font-size: 14px; margin-top: 5px;">Gateway de Pagos y Notificaciones</p>
         </div>
-        <p style="font-size: 16px; line-height: 1.5;">Hola <strong>${nombre || "Usuario"}</strong>,</p>
+        <p style="font-size: 16px; line-height: 1.5;">Hola <strong>${cleanName}</strong>,</p>
         <p style="font-size: 15px; color: #cbd5e1; line-height: 1.5;">¡Tu cuenta ha sido creada y activada con éxito! Ya puedes acceder a tu panel de control, vincular tu WhatsApp mediante código QR y automatizar tus cobranzas.</p>
         <div style="text-align: center; margin: 30px 0;">
-            <a href="https://bot-whatsapp-mensajes-automatico.vercel.app" style="background: #00a884; color: #ffffff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px; display: inline-block;">Acceder a mi Panel</a>
+            <a href="${escapeHtml(frontendUrl)}" style="background: #00a884; color: #ffffff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px; display: inline-block;">Acceder a mi Panel</a>
         </div>
         <p style="font-size: 13px; color: #64748b; text-align: center; border-top: 1px solid #1e293b; padding-top: 15px;">
-            Tu correo de acceso es: <strong style="color: #94a3b8;">${email}</strong>
+            Tu correo de acceso es: <strong style="color: #94a3b8;">${cleanEmail}</strong>
         </p>
     </div>`;
 
@@ -41,9 +65,7 @@ async function enviarEmailRegistro(nombre, email, token) {
     html: htmlMsg
   };
 
-  const transporter = getTransporter();
   const info = await transporter.sendMail(mailOptions);
-  console.log("====== CORREO DE BIENVENIDA ENVIADO CON ÉXITO A: " + email + " ======");
   return info;
 }
 
