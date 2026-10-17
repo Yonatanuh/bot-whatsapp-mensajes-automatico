@@ -115,7 +115,7 @@ export default function Login() {
         <h1>{mode === "LOGIN" ? "Iniciar sesión" : mode === "REGISTER" ? "Registro" : "Verificación"}</h1>
         <p className="subtitle">
           {mode === "LOGIN" ? "Bienvenido de nuevo, te estábamos esperando" : 
-           mode === "REGISTER" ? "Crea tu cuenta gratis" : 
+           mode === "REGISTER" ? "Crea tu cuenta gratis y accede de inmediato" : 
            "Revisa tu correo por el código de 6 dígitos"}
         </p>
 
