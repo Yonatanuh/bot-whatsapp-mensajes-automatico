@@ -600,6 +600,44 @@ io.use((socket, next) => {
 // ── SISTEMA MULTI-SESIÓN WHATSAPP (AISLADO POR CUENTA) ──
 const sessions = new Map();
 
+let resolvedChromiumExecutable = null;
+let resolvedChromiumArgs = null;
+
+async function initChromiumEnvironment() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    resolvedChromiumExecutable = process.env.PUPPETEER_EXECUTABLE_PATH;
+    return;
+  }
+  if (process.platform === "linux") {
+    try {
+      const sparticuz = require("@sparticuz/chromium").default || require("@sparticuz/chromium");
+      resolvedChromiumExecutable = await sparticuz.executablePath();
+      resolvedChromiumArgs = sparticuz.args;
+      console.log(`🧭 [CHROMIUM LINUX] Binario autónomo Sparticuz Chromium listo en: ${resolvedChromiumExecutable}`);
+      return;
+    } catch (e) {
+      console.warn("⚠️ [CHROMIUM] Fallback desde Sparticuz:", e.message);
+    }
+    const commonPaths = [
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/google-chrome",
+      "/usr/bin/chromium-browser",
+      "/usr/bin/chromium"
+    ];
+    for (const p of commonPaths) {
+      if (fs.existsSync(p)) {
+        resolvedChromiumExecutable = p;
+        return;
+      }
+    }
+  }
+  try {
+    const puppeteer = require("puppeteer");
+    resolvedChromiumExecutable = puppeteer.executablePath();
+  } catch {}
+}
+initChromiumEnvironment();
+
 function getSessionClientId(userEmail) {
   return (userEmail || "admin").toLowerCase().replace(/[^a-z0-9]/g, "_");
 }
@@ -635,50 +673,30 @@ function getOrCreateUserSession(userEmail) {
   const authDataPath = path.join(DATA_DIR, ".wwebjs_auth");
   const puppeteerConfig = {
     headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-accelerated-2d-canvas",
-      "--no-first-run",
-      "--disable-gpu",
-      "--disable-software-rasterizer",
-      "--disable-extensions",
-      "--disable-default-apps",
-      "--disable-background-networking",
-      "--disable-background-timer-throttling",
-      "--disable-backgrounding-occluded-windows",
-      "--disable-breakpad",
-      "--disable-renderer-backgrounding",
-      "--mute-audio",
-      "--js-flags=--max-old-space-size=128"
-    ],
+    args: (resolvedChromiumArgs && Array.isArray(resolvedChromiumArgs) && resolvedChromiumArgs.length > 0)
+      ? Array.from(new Set([...resolvedChromiumArgs, "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]))
+      : [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-accelerated-2d-canvas",
+          "--no-first-run",
+          "--disable-gpu",
+          "--disable-software-rasterizer",
+          "--disable-extensions",
+          "--disable-default-apps",
+          "--disable-background-networking",
+          "--disable-background-timer-throttling",
+          "--disable-backgrounding-occluded-windows",
+          "--disable-breakpad",
+          "--disable-renderer-backgrounding",
+          "--mute-audio",
+          "--js-flags=--max-old-space-size=128"
+        ],
   };
 
-  // Detección y asignación robusta del ejecutable de Chrome/Chromium
-  let execPath = process.env.PUPPETEER_EXECUTABLE_PATH;
-  if (!execPath) {
-    try {
-      const puppeteer = require("puppeteer");
-      execPath = puppeteer.executablePath();
-    } catch {}
-  }
-  if (!execPath || !fs.existsSync(execPath)) {
-    const commonPaths = [
-      "/usr/bin/google-chrome-stable",
-      "/usr/bin/google-chrome",
-      "/usr/bin/chromium-browser",
-      "/usr/bin/chromium"
-    ];
-    for (const p of commonPaths) {
-      if (fs.existsSync(p)) {
-        execPath = p;
-        break;
-      }
-    }
-  }
-  if (execPath && fs.existsSync(execPath)) {
-    puppeteerConfig.executablePath = execPath;
+  if (resolvedChromiumExecutable && fs.existsSync(resolvedChromiumExecutable)) {
+    puppeteerConfig.executablePath = resolvedChromiumExecutable;
   }
 
   const client = new Client({
