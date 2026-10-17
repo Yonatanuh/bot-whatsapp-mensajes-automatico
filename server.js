@@ -602,47 +602,53 @@ const sessions = new Map();
 
 let resolvedChromiumExecutable = null;
 let resolvedChromiumArgs = null;
+let chromiumInitPromise = null;
 
-async function initChromiumEnvironment() {
-  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-    resolvedChromiumExecutable = process.env.PUPPETEER_EXECUTABLE_PATH;
-    return;
-  }
-  if (process.platform === "linux") {
-    try {
-      const sparticuz = require("@sparticuz/chromium").default || require("@sparticuz/chromium");
-      resolvedChromiumExecutable = await sparticuz.executablePath();
-      resolvedChromiumArgs = sparticuz.args;
-      console.log(`🧭 [CHROMIUM LINUX] Binario autónomo Sparticuz Chromium listo en: ${resolvedChromiumExecutable}`);
-      return;
-    } catch (e) {
-      console.warn("⚠️ [CHROMIUM] Fallback desde Sparticuz:", e.message);
-    }
-    const commonPaths = [
-      "/usr/bin/google-chrome-stable",
-      "/usr/bin/google-chrome",
-      "/usr/bin/chromium-browser",
-      "/usr/bin/chromium"
-    ];
-    for (const p of commonPaths) {
-      if (fs.existsSync(p)) {
-        resolvedChromiumExecutable = p;
+function getChromiumEnvironment() {
+  if (!chromiumInitPromise) {
+    chromiumInitPromise = (async () => {
+      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        resolvedChromiumExecutable = process.env.PUPPETEER_EXECUTABLE_PATH;
         return;
       }
-    }
+      if (process.platform === "linux") {
+        try {
+          const sparticuz = require("@sparticuz/chromium").default || require("@sparticuz/chromium");
+          resolvedChromiumExecutable = await sparticuz.executablePath();
+          resolvedChromiumArgs = sparticuz.args;
+          console.log(`🧭 [CHROMIUM LINUX] Binario autónomo Sparticuz Chromium listo en: ${resolvedChromiumExecutable}`);
+          return;
+        } catch (e) {
+          console.warn("⚠️ [CHROMIUM] Fallback desde Sparticuz:", e.message);
+        }
+        const commonPaths = [
+          "/usr/bin/google-chrome-stable",
+          "/usr/bin/google-chrome",
+          "/usr/bin/chromium-browser",
+          "/usr/bin/chromium"
+        ];
+        for (const p of commonPaths) {
+          if (fs.existsSync(p)) {
+            resolvedChromiumExecutable = p;
+            return;
+          }
+        }
+      }
+      try {
+        const puppeteer = require("puppeteer");
+        resolvedChromiumExecutable = puppeteer.executablePath();
+      } catch {}
+    })();
   }
-  try {
-    const puppeteer = require("puppeteer");
-    resolvedChromiumExecutable = puppeteer.executablePath();
-  } catch {}
+  return chromiumInitPromise;
 }
-initChromiumEnvironment();
+getChromiumEnvironment();
 
 function getSessionClientId(userEmail) {
   return (userEmail || "admin").toLowerCase().replace(/[^a-z0-9]/g, "_");
 }
 
-function getOrCreateUserSession(userEmail) {
+async function getOrCreateUserSession(userEmail) {
   const cleanEmail = (userEmail || "").toLowerCase().trim();
   if (!cleanEmail) return null;
 
@@ -669,6 +675,9 @@ function getOrCreateUserSession(userEmail) {
     info: null
   };
   sessions.set(cleanEmail, sessionData);
+
+  // Asegurar que el entorno de Chromium en la nube esté completamente resuelto
+  await getChromiumEnvironment();
 
   const authDataPath = path.join(DATA_DIR, ".wwebjs_auth");
   const puppeteerConfig = {
@@ -701,6 +710,7 @@ function getOrCreateUserSession(userEmail) {
 
   const client = new Client({
     authStrategy: new LocalAuth({ clientId, dataPath: authDataPath }),
+    authTimeoutMs: 90000,
     puppeteer: puppeteerConfig,
   });
 
@@ -782,18 +792,22 @@ function getOrCreateUserSession(userEmail) {
   return sessionData;
 }
 
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
   const userEmail = socket.user && socket.user.email ? socket.user.email.toLowerCase() : null;
   if (!userEmail) return;
 
   socket.join(userEmail);
 
-  const session = getOrCreateUserSession(userEmail);
-  if (session) {
-    socket.emit("status", session.status);
-    if (session.status === "QR_READY" && session.qr) {
-      socket.emit("qr", session.qr);
+  try {
+    const session = await getOrCreateUserSession(userEmail);
+    if (session) {
+      socket.emit("status", session.status);
+      if (session.status === "QR_READY" && session.qr) {
+        socket.emit("qr", session.qr);
+      }
     }
+  } catch (err) {
+    console.warn(`⚠️ Error en conexión socket para ${userEmail}:`, err.message);
   }
 });
 
@@ -843,7 +857,7 @@ const MAX_NUMBERS_PER_BATCH = 500;
 // Endpoint Protegido para enviar mensajes (Sesión y Logs aislados por cuenta)
 app.post("/api/send", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
-  const session = getOrCreateUserSession(userEmail);
+  const session = await getOrCreateUserSession(userEmail);
 
   if (!session || session.status !== "CONNECTED" || !session.client) {
     return res.status(400).json({ error: "Tu cuenta de WhatsApp no está vinculada. Por favor escanea tu código QR en la Consola." });
@@ -919,7 +933,7 @@ app.post("/api/send", authenticateToken, async (req, res) => {
 // Envío Automático a contactos de cobro del usuario con reemplazo de variables
 app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
-  const session = getOrCreateUserSession(userEmail);
+  const session = await getOrCreateUserSession(userEmail);
 
   if (!session || session.status !== "CONNECTED" || !session.client) {
     return res.status(400).json({ error: "Tu cuenta de WhatsApp no está vinculada. Por favor escanea tu código QR en la Consola." });
@@ -1011,9 +1025,9 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
 });
 
 // Obtener estado actual personal del usuario
-app.get("/api/status", authenticateToken, (req, res) => {
+app.get("/api/status", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
-  const session = getOrCreateUserSession(userEmail);
+  const session = await getOrCreateUserSession(userEmail);
   res.json({
     status: session ? session.status : "DISCONNECTED",
     qr: session && session.status === "QR_READY" ? session.qr : ""
@@ -1036,8 +1050,8 @@ app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
   }
   io.to(userEmail).emit("status", "INITIALIZING");
   io.to(userEmail).emit("qr", "");
-  setTimeout(() => {
-    getOrCreateUserSession(userEmail);
+  setTimeout(async () => {
+    await getOrCreateUserSession(userEmail);
   }, 600);
   res.json({ success: true, message: "WhatsApp desvinculado con éxito. Generando nuevo código QR..." });
 });
@@ -1388,9 +1402,9 @@ app.delete("/api/clients", authenticateToken, (req, res) => {
 // ─────────────────────────────────────────────────────────────
 
 // 1. Health Check & Métricas del Servidor
-app.get("/api/test/health", authenticateToken, (req, res) => {
+app.get("/api/test/health", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
-  const session = getOrCreateUserSession(userEmail);
+  const session = await getOrCreateUserSession(userEmail);
   const uptimeSec = Math.floor(process.uptime());
   const hours = Math.floor(uptimeSec / 3600);
   const minutes = Math.floor((uptimeSec % 3600) / 60);
@@ -1442,9 +1456,9 @@ app.get("/api/health", (req, res) => {
 });
 
 // 2. Ping / Medidor de Latencia
-app.post("/api/test/ping", authenticateToken, (req, res) => {
+app.post("/api/test/ping", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
-  const session = getOrCreateUserSession(userEmail);
+  const session = await getOrCreateUserSession(userEmail);
   res.json({
     pong: true,
     clientTimestamp: req.body.timestamp || null,
@@ -1456,7 +1470,7 @@ app.post("/api/test/ping", authenticateToken, (req, res) => {
 // 3. Envío de Prueba Individual (Direct Test Message - Solo Admin)
 app.post("/api/test/single", authenticateToken, authorizeAdmin, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
-  const session = getOrCreateUserSession(userEmail);
+  const session = await getOrCreateUserSession(userEmail);
   const { number, message } = req.body;
   if (!number || !message) {
     return res.status(400).json({ error: "Número y mensaje son requeridos." });
@@ -1506,7 +1520,7 @@ app.post("/api/test/single", authenticateToken, authorizeAdmin, async (req, res)
 // 4. Verificador de Cuenta de WhatsApp (Solo Admin)
 app.post("/api/test/check-number", authenticateToken, authorizeAdmin, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
-  const session = getOrCreateUserSession(userEmail);
+  const session = await getOrCreateUserSession(userEmail);
   const { number } = req.body;
   if (!number) {
     return res.status(400).json({ error: "El número telefónico es requerido." });
@@ -1595,8 +1609,8 @@ app.post("/api/test/restart-client", authenticateToken, authorizeAdmin, async (r
     }
     io.to(userEmail).emit("status", "INITIALIZING");
     io.to(userEmail).emit("qr", "");
-    setTimeout(() => {
-      getOrCreateUserSession(userEmail);
+    setTimeout(async () => {
+      await getOrCreateUserSession(userEmail);
     }, 1200);
 
     return res.json({ message: "Reinicio del cliente de WhatsApp iniciado." });
