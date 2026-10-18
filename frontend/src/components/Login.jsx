@@ -242,7 +242,7 @@ export default function Login() {
                 <label>{mode === "LOGIN" ? "Correo electrónico o Usuario" : "Correo electrónico"}</label>
                 <input
                   type={mode === "LOGIN" ? "text" : "email"}
-                  placeholder={mode === "LOGIN" ? "gonzalezyonild@gmail.com o admin" : "tu@correo.com"}
+                  placeholder={mode === "LOGIN" ? "usuario@ejemplo.com o admin" : "usuario@ejemplo.com"}
                   maxLength={254}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
