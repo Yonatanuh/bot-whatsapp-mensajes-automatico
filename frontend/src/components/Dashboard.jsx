@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import {
-  LogOut, Send, MessageCircle, Terminal, Clock, Upload,
+  LogOut, Send, MessageCircle, Terminal, Clock, Timer, Upload,
   Users, Settings, LayoutDashboard, ShieldCheck, X, Menu,
   Loader2, Sparkles, FileText, Trash2, Smartphone, CheckCheck,
   Copy, Check, Video, Phone, MoreVertical, Paperclip, Smile,
@@ -104,6 +104,24 @@ export default function Dashboard() {
 
   // Notificaciones Toast flotantes
   const [toast, setToast] = useState(null);
+
+  // Auto-reinicio de sesión a los 30 minutos (Previene saturación de memoria y bugs en sesiones largas)
+  const [autoResetEnabled, setAutoResetEnabled] = useState(() => localStorage.getItem('wa_auto_reset_30m') !== 'false');
+  const [secondsLeft, setSecondsLeft] = useState(() => {
+    const saved = localStorage.getItem('wa_session_start_time');
+    if (saved) {
+      const elapsed = Math.floor((Date.now() - parseInt(saved, 10)) / 1000);
+      if (elapsed >= 0 && elapsed < 1800) return 1800 - elapsed;
+    }
+    const now = Date.now();
+    localStorage.setItem('wa_session_start_time', now.toString());
+    return 1800;
+  });
+
+  const loadingRef = useRef(loading);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   const logsEndRef = useRef(null);
   const socketRef = useRef(null);
@@ -307,7 +325,67 @@ export default function Dashboard() {
       await axios.post(`${API_BASE}/api/logout`, {}, { withCredentials: true });
     } catch {}
     localStorage.removeItem('token'); 
+    localStorage.removeItem('wa_session_start_time');
+    localStorage.removeItem('wa_logout_reason');
+    socketRef.current?.disconnect();
     navigate('/login'); 
+  };
+
+  const handleToggleAutoReset = (val) => {
+    setAutoResetEnabled(val);
+    localStorage.setItem('wa_auto_reset_30m', val ? 'true' : 'false');
+    showToast(val ? 'success' : 'info', val ? 'Auto-reinicio cada 30 min activado.' : 'Auto-reinicio desactivado.');
+  };
+
+  const handleExtendSession = () => {
+    localStorage.setItem('wa_session_start_time', Date.now().toString());
+    setSecondsLeft(1800);
+    showToast('success', 'Sesión renovada por 30 minutos más.');
+  };
+
+  const executeAutoReset = async () => {
+    try {
+      await axios.post(`${API_BASE}/api/logout`, {}, { withCredentials: true }).catch(() => {});
+    } catch {}
+    localStorage.removeItem('token');
+    localStorage.removeItem('wa_session_start_time');
+    localStorage.setItem('wa_logout_reason', 'timeout_30m');
+    socketRef.current?.disconnect();
+    navigate('/login');
+  };
+
+  useEffect(() => {
+    if (!autoResetEnabled) return;
+
+    const timer = setInterval(() => {
+      const savedStart = localStorage.getItem('wa_session_start_time');
+      if (!savedStart) {
+        localStorage.setItem('wa_session_start_time', Date.now().toString());
+        setSecondsLeft(1800);
+        return;
+      }
+      const elapsed = Math.floor((Date.now() - parseInt(savedStart, 10)) / 1000);
+      const remaining = Math.max(0, 1800 - elapsed);
+      setSecondsLeft(remaining);
+
+      if (remaining === 60) {
+        showToast('warn', '⚠️ Por seguridad y rendimiento, tu sesión se reiniciará en 1 minuto.');
+      }
+
+      if (remaining <= 0) {
+        if (loadingRef.current) return;
+        clearInterval(timer);
+        executeAutoReset();
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [autoResetEnabled]);
+
+  const formatTimeRemaining = (totalSec) => {
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
   // Función para consultar Ping y Salud del Backend
@@ -914,6 +992,21 @@ export default function Dashboard() {
             </div>
           </div>
 
+          <div className="flex items-center justify-between text-[10px] px-1 pb-2 font-medium" style={{ color: "var(--wa-muted)" }}>
+            <span className="flex items-center gap-1">
+              <Timer size={11} />
+              Auto-reinicio (30m):
+            </span>
+            <span 
+              className="font-bold cursor-pointer hover:underline"
+              onClick={handleExtendSession}
+              title={autoResetEnabled ? "Haz clic para renovar 30m" : "Desactivado en Ajustes"}
+              style={{ color: autoResetEnabled ? (secondsLeft <= 60 ? "var(--wa-error)" : secondsLeft <= 300 ? "#f59e0b" : "var(--wa-text)") : "var(--wa-muted)" }}
+            >
+              {autoResetEnabled ? formatTimeRemaining(secondsLeft) : "Desactivado"}
+            </span>
+          </div>
+
           <button
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-semibold transition-opacity hover:opacity-90"
@@ -950,6 +1043,26 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-2.5">
+            {/* Widget Auto-Reinicio 30m */}
+            <div 
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer select-none"
+              onClick={handleExtendSession}
+              style={{
+                background: !autoResetEnabled ? "rgba(107, 114, 128, 0.12)" : secondsLeft <= 60 ? "rgba(234, 0, 56, 0.15)" : secondsLeft <= 300 ? "rgba(245, 158, 11, 0.15)" : "rgba(59, 130, 246, 0.12)",
+                color: !autoResetEnabled ? "var(--wa-muted)" : secondsLeft <= 60 ? "var(--wa-error)" : secondsLeft <= 300 ? "#f59e0b" : "#3b82f6",
+                border: "1px solid var(--wa-border)"
+              }}
+              title={autoResetEnabled ? `Auto-reinicio al login en ${formatTimeRemaining(secondsLeft)} para evitar bugs. Haz clic para renovar 30 min.` : 'Auto-reinicio desactivado. Haz clic en Ajustes para activarlo.'}
+            >
+              <Timer size={11} className={autoResetEnabled && secondsLeft <= 60 ? 'animate-pulse' : ''} />
+              <span>{autoResetEnabled ? `${formatTimeRemaining(secondsLeft)}` : 'Auto: Off'}</span>
+              {autoResetEnabled && (
+                <span className="text-[9px] opacity-75 hover:opacity-100 font-bold ml-0.5 px-1 py-0.2 rounded bg-black/10 dark:bg-white/10" title="Renovar 30 minutos">
+                  +30m
+                </span>
+              )}
+            </div>
+
             {/* Medidor de Ping / Latencia */}
             {apiPing !== null && (
               <div 
@@ -2377,6 +2490,38 @@ export default function Dashboard() {
                   <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full" style={{ background: "rgba(37, 211, 102, 0.15)", color: "var(--wa-green)" }}>
                     ACTIVO (24H)
                   </span>
+                </div>
+                {/* Opción de Auto-Reinicio de 30 minutos */}
+                <div className="p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Timer size={15} style={{ color: "var(--wa-button)" }} />
+                      <span className="text-xs font-bold" style={{ color: "var(--wa-text)" }}>Auto-Reinicio de Sesión (30 Minutos)</span>
+                    </div>
+                    <span className="text-[11px] block mt-1" style={{ color: "var(--wa-muted)" }}>
+                      Reinicia la página automáticamente hacia el login tras 30 minutos continuos para liberar memoria del navegador, limpiar sockets y evitar bugs en sesiones prolongadas.
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {autoResetEnabled && (
+                      <button
+                        type="button"
+                        onClick={handleExtendSession}
+                        className="text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition hover:opacity-80 cursor-pointer"
+                        style={{ borderColor: "var(--wa-border)", color: "var(--wa-text)" }}
+                        title="Reiniciar el contador a 30 minutos desde ahora"
+                      >
+                        Renovar 30m
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleAutoReset(!autoResetEnabled)}
+                      className={`text-[11px] font-bold px-3 py-1 rounded-full transition-all cursor-pointer ${autoResetEnabled ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/40' : 'bg-gray-500/20 text-gray-400 border border-gray-500/40'}`}
+                    >
+                      {autoResetEnabled ? 'ACTIVO (30 MIN)' : 'DESACTIVADO'}
+                    </button>
+                  </div>
                 </div>
               </div>
 

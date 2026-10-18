@@ -20,9 +20,15 @@ export default function Login() {
   const [apiSuccess, setApiSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  const [sessionNotice, setSessionNotice] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
+    const reason = localStorage.getItem("wa_logout_reason");
+    if (reason === "timeout_30m") {
+      setSessionNotice("Tu sesión se reinició automáticamente tras 30 minutos para liberar memoria y evitar errores. Por favor, vuelve a ingresar.");
+      localStorage.removeItem("wa_logout_reason");
+    }
     // Si ya existe una sesión previa, redirigir al Dashboard
     const token = localStorage.getItem("token");
     if (token) {
@@ -174,6 +180,25 @@ export default function Login() {
            mode === "REGISTER" ? "Crea tu cuenta y valida tu código de Gmail" : 
            "Ingresa el código de 6 dígitos que enviamos a tu correo Gmail"}
         </p>
+
+        {sessionNotice && (
+          <div style={{
+            backgroundColor: "rgba(59, 130, 246, 0.12)",
+            color: "#2563eb",
+            border: "1px solid rgba(59, 130, 246, 0.3)",
+            padding: "10px 14px",
+            borderRadius: "10px",
+            marginBottom: "15px",
+            fontSize: "13px",
+            lineHeight: "1.4",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px"
+          }}>
+            <span style={{ fontSize: "16px" }}>🛡️</span>
+            <span>{sessionNotice}</span>
+          </div>
+        )}
 
         {apiError && <div className="api-error-banner">{apiError}</div>}
         {apiSuccess && <div style={{backgroundColor: "#dcf8c6", color: "#075e54", padding: "10px 14px", borderRadius: "8px", marginBottom: "15px", fontSize: "14px", lineHeight: "1.4"}}>{apiSuccess}</div>}
