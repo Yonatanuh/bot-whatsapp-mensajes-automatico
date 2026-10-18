@@ -621,7 +621,9 @@ const PUPPETEER_BASE_ARGS = [
   "--disable-dev-shm-usage",
   "--disable-accelerated-2d-canvas",
   "--no-first-run",
-  "--disable-gpu"
+  "--disable-gpu",
+  "--single-process",
+  "--no-zygote"
 ];
 
 const DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -761,14 +763,10 @@ async function getOrCreateUserSession(userEmail) {
 
   const client = new Client({
     authStrategy: new LocalAuth({ clientId, dataPath: authDataPath }),
-    authTimeoutMs: 120000,
+    authTimeoutMs: 60000,
     bypassCSP: true,
     userAgent: DESKTOP_USER_AGENT,
-    puppeteer: puppeteerConfig,
-    webVersionCache: {
-      type: "remote",
-      remotePath: "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1050732206-alpha.html",
-    }
+    puppeteer: puppeteerConfig
   });
 
   sessionData.client = client;
