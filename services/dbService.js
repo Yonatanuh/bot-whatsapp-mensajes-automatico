@@ -1,6 +1,7 @@
 const { MongoClient } = require("mongodb");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { encryptField, decryptField } = require("./cryptoService");
 
 // Directorio de persistencia local y réplicas
@@ -69,10 +70,8 @@ function saveLocalClients(clients) {
 }
 
 function loadLocalClientsForUser(userEmail) {
-  if (!userEmail) return [];
-  const emailKey = userEmail.toLowerCase().trim();
-  const all = loadLocalClients();
-  return all.filter(c => (c.ownerEmail || "").toLowerCase().trim() === emailKey);
+  // Directorio unificado de la empresa: accesible por todas las cuentas autorizadas
+  return loadLocalClients();
 }
 
 function loadLocalUsers() {
@@ -158,7 +157,21 @@ async function connectToMongo() {
     // Crear índices de alto rendimiento y privacidad
     try {
       await mongoDb.collection("clients").createIndex({ ownerEmail: 1 });
-      await mongoDb.collection("clients").createIndex({ id: 1 }, { unique: true });
+      const clientsCollection = mongoDb.collection("clients");
+      const clientIndexes = await clientsCollection.listIndexes().toArray();
+      const globalIdIndex = clientIndexes.find(index =>
+        index.unique &&
+        index.key &&
+        Object.keys(index.key).length === 1 &&
+        index.key.id === 1
+      );
+      if (globalIdIndex) {
+        await clientsCollection.dropIndex(globalIdIndex.name);
+      }
+      await clientsCollection.createIndex(
+        { ownerEmail: 1, id: 1 },
+        { unique: true, name: "ownerEmail_1_id_1" }
+      );
       await mongoDb.collection("users").createIndex({ email: 1 }, { unique: true });
       await mongoDb.collection("templates").createIndex({ userEmail: 1 }, { unique: true });
       console.log("⚡ [DB] Índices de MongoDB configurados para aislamiento de clientes y rendimiento.");
@@ -268,27 +281,11 @@ async function syncSeedsToMongo() {
   }
 }
 
-// ── OPERACIONES DE CLIENTES (CRUD MULTI-TENANT CON GARANTÍA DE PRIVACIDAD) ──
+// ── OPERACIONES DE CLIENTES (DIRECTORIO COMPARTIDO DE LA EMPRESA) ──
 
 async function getClientsForUser(userEmail) {
-  if (!userEmail) return [];
-  const emailKey = userEmail.toLowerCase().trim();
-
-  if (isConnected && mongoDb) {
-    try {
-      const docs = await mongoDb.collection("clients")
-        .find({ ownerEmail: emailKey }, { projection: { _id: 0 } })
-        .toArray();
-      return docs.map(c => ({
-        ...c,
-        nota: decryptField(c.nota)
-      }));
-    } catch (err) {
-      console.warn("⚠️ [DB] Error leyendo clientes de MongoDB, usando respaldo local:", err.message);
-    }
-  }
-
-  return loadLocalClientsForUser(emailKey);
+  // Directorio unificado de la empresa: todos los miembros autorizados acceden al directorio completo
+  return await getAllClients();
 }
 
 async function getAllClients() {
@@ -318,7 +315,7 @@ async function addClient(clientData) {
     nombre: clientData.nombre,
     numero: clientData.numero,
     nota: encryptedNota,
-    ownerEmail: emailKey,
+    ownerEmail: emailKey, // conservado para auditoría
     agregadoEl: clientData.agregadoEl || new Date().toISOString()
   };
 
@@ -345,7 +342,6 @@ async function addClient(clientData) {
 }
 
 async function updateClient(id, ownerEmail, updates) {
-  const emailKey = (ownerEmail || "").toLowerCase().trim();
   const mongoUpdate = {};
   if (updates.nombre) mongoUpdate.nombre = updates.nombre;
   if (updates.numero) mongoUpdate.numero = updates.numero;
@@ -354,7 +350,7 @@ async function updateClient(id, ownerEmail, updates) {
   if (isConnected && mongoDb) {
     try {
       await mongoDb.collection("clients").updateOne(
-        { id: id, ownerEmail: emailKey },
+        { id: id },
         { $set: mongoUpdate }
       );
     } catch (err) {
@@ -364,7 +360,7 @@ async function updateClient(id, ownerEmail, updates) {
 
   // Actualizar espejo local
   const currentLocal = loadLocalClients();
-  const idx = currentLocal.findIndex(c => c.id === id && (c.ownerEmail || "").toLowerCase().trim() === emailKey);
+  const idx = currentLocal.findIndex(c => c.id === id);
   if (idx !== -1) {
     if (updates.nombre) currentLocal[idx].nombre = updates.nombre;
     if (updates.numero) currentLocal[idx].numero = updates.numero;
@@ -376,11 +372,9 @@ async function updateClient(id, ownerEmail, updates) {
 }
 
 async function deleteClient(id, ownerEmail) {
-  const emailKey = (ownerEmail || "").toLowerCase().trim();
-
   if (isConnected && mongoDb) {
     try {
-      await mongoDb.collection("clients").deleteOne({ id: id, ownerEmail: emailKey });
+      await mongoDb.collection("clients").deleteOne({ id: id });
     } catch (err) {
       console.warn("⚠️ [DB] Error eliminando cliente de MongoDB:", err.message);
     }
@@ -388,7 +382,7 @@ async function deleteClient(id, ownerEmail) {
 
   // Actualizar espejo local
   const currentLocal = loadLocalClients();
-  const idx = currentLocal.findIndex(c => c.id === id && (c.ownerEmail || "").toLowerCase().trim() === emailKey);
+  const idx = currentLocal.findIndex(c => c.id === id);
   let removed = null;
   if (idx !== -1) {
     removed = currentLocal.splice(idx, 1)[0];
@@ -398,14 +392,12 @@ async function deleteClient(id, ownerEmail) {
 }
 
 async function deleteClientsBulk(ids, ownerEmail) {
-  const emailKey = (ownerEmail || "").toLowerCase().trim();
   const idSet = new Set(ids);
 
   if (isConnected && mongoDb) {
     try {
       await mongoDb.collection("clients").deleteMany({
-        id: { $in: ids },
-        ownerEmail: emailKey
+        id: { $in: ids }
       });
     } catch (err) {
       console.warn("⚠️ [DB] Error en eliminación masiva de MongoDB:", err.message);
@@ -414,8 +406,8 @@ async function deleteClientsBulk(ids, ownerEmail) {
 
   // Actualizar espejo local
   const currentLocal = loadLocalClients();
-  const removed = currentLocal.filter(c => idSet.has(c.id) && (c.ownerEmail || "").toLowerCase().trim() === emailKey);
-  const remaining = currentLocal.filter(c => !(idSet.has(c.id) && (c.ownerEmail || "").toLowerCase().trim() === emailKey));
+  const removed = currentLocal.filter(c => idSet.has(c.id));
+  const remaining = currentLocal.filter(c => !idSet.has(c.id));
   saveLocalClients(remaining);
   return removed;
 }
@@ -436,7 +428,7 @@ async function importClientsBatch(newClientsList, userEmail) {
 
     if (rawPhone.length >= 7 && rawPhone.length <= 15 && !existingPhones.has(rawPhone)) {
       toInsert.push({
-        id: Date.now().toString() + Math.random().toString().slice(2, 6),
+        id: crypto.randomUUID(),
         nombre: cleanName,
         numero: rawPhone,
         nota: cleanNota,
@@ -450,15 +442,11 @@ async function importClientsBatch(newClientsList, userEmail) {
   if (toInsert.length === 0) return 0;
 
   if (isConnected && mongoDb) {
-    try {
-      const docs = toInsert.map(c => ({
-        ...c,
-        nota: encryptField(c.nota)
-      }));
-      await mongoDb.collection("clients").insertMany(docs);
-    } catch (err) {
-      console.warn("⚠️ [DB] Error en importación masiva a MongoDB:", err.message);
-    }
+    const docs = toInsert.map(c => ({
+      ...c,
+      nota: encryptField(c.nota)
+    }));
+    await mongoDb.collection("clients").insertMany(docs);
   }
 
   // Actualizar espejo local
@@ -474,7 +462,10 @@ async function syncLocalClientsToMongo(clients) {
   try {
     const ops = clients.map(c => ({
       updateOne: {
-        filter: { id: c.id },
+        filter: {
+          id: c.id,
+          ownerEmail: (c.ownerEmail || "").toLowerCase().trim()
+        },
         update: {
           $set: {
             id: c.id,
@@ -652,15 +643,11 @@ async function saveTemplatesForUser(userEmail, data) {
   };
 
   if (isConnected && mongoDb) {
-    try {
-      await mongoDb.collection("templates").updateOne(
-        { userEmail: emailKey },
-        { $set: tplData },
-        { upsert: true }
-      );
-    } catch (err) {
-      console.warn("⚠️ [DB] Error guardando plantillas en MongoDB:", err.message);
-    }
+    await mongoDb.collection("templates").updateOne(
+      { userEmail: emailKey },
+      { $set: tplData },
+      { upsert: true }
+    );
   }
 
   saveLocalTemplatesForUser(emailKey, tplData);

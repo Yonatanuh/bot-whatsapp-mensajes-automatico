@@ -7,6 +7,7 @@ Plataforma empresarial de alta disponibilidad para la automatización de cobranz
 ## 🔒 Arquitectura de Seguridad (Web & Anti-Hacker)
 
 - **Aislamiento Multi-Sesión por Usuario**: Cada usuario o agente registrado gestiona su propia sesión independiente de WhatsApp (`LocalAuth({ clientId })`) sin acceso cruzado a las conversaciones de otros.
+- **Directorio Centralizado Empresarial**: Base de clientes unificada y compartida para toda la empresa en tiempo real vía WebSockets (`clients_updated`), con trazabilidad de auditoría por operador (`ownerEmail`).
 - **Cifrado de Datos en Reposo (AES-256-GCM)**: Notas y saldos confidenciales se encriptan con clave autenticada de 256 bits y vector de inicialización único (IV) antes de guardarse en disco.
 - **Protección Anti-DDoS y Fuerza Bruta**:
   - `express-rate-limit` con limitador global estricto.
@@ -54,8 +55,11 @@ cp .env.example .env
 | `ADMIN_EMAIL` | Correo del administrador para alertas |
 | `SMTP_EMAIL` | Correo de salida para enviar códigos de verificación 2FA |
 | `SMTP_PASSWORD` | Contraseña de aplicación del correo SMTP |
-| `CORS_ORIGIN` | Dominios autorizados (ej: `https://tu-frontend.vercel.app`) |
+| `DATA_ENCRYPTION_KEY` | *(Opcional)* Clave para cifrar datos; si falta, se deriva de `JWT_SECRET` |
+| `CORS_ORIGIN` | Orígenes autorizados, separados por comas (ej: `https://tu-frontend.vercel.app`) |
 | `DATA_DIR` | *(Opcional)* Ruta de almacenamiento persistente en la nube |
+
+En producción, `JWT_SECRET` y `ADMIN_PASS` son obligatorios; el servidor no inicia si faltan o si `ADMIN_PASS` conserva la contraseña predeterminada. Configura `CORS_ORIGIN` con el dominio real del frontend. Para envío SMTP directo también se necesitan `SMTP_EMAIL` y `SMTP_PASSWORD`; no se incluyen credenciales predeterminadas en el código.
 
 ---
 
@@ -79,4 +83,3 @@ cp .env.example .env
 
 ## 📜 Licencia
 Uso exclusivo y privado. Todos los derechos reservados.
-

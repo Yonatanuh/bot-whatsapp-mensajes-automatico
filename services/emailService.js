@@ -12,17 +12,17 @@ function escapeHtml(str) {
 }
 
 function getTransporter() {
-  const user = (process.env.SMTP_EMAIL || "gonzalezyonild@gmail.com").trim();
-  const pass = (process.env.SMTP_PASSWORD || "icgucczrdktyssae").trim();
+  const user = (process.env.SMTP_EMAIL || "").trim();
+  const pass = (process.env.SMTP_PASSWORD || "").trim();
+  if (!user || !pass) {
+    throw new Error("SMTP_EMAIL y SMTP_PASSWORD deben estar configurados para usar SMTP.");
+  }
 
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST || "smtp.gmail.com",
     port: parseInt(process.env.SMTP_PORT || "465", 10),
     secure: process.env.SMTP_SECURE === "false" ? false : true,
     auth: { user, pass },
-    tls: {
-      rejectUnauthorized: false
-    },
     connectionTimeout: 5000,
     greetingTimeout: 5000,
     socketTimeout: 5000
@@ -49,7 +49,7 @@ async function sendViaVercelRelay(to, subject, html) {
 
 async function sendViaDirectSMTP(to, subject, htmlMsg) {
   const transporter = getTransporter();
-  const senderEmail = (process.env.SMTP_EMAIL || "gonzalezyonild@gmail.com").trim();
+  const senderEmail = (process.env.SMTP_EMAIL || "").trim();
   const mailOptions = {
     from: `"Bot WhatsApp Admin" <${senderEmail}>`,
     to,

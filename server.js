@@ -1,4 +1,15 @@
 require("dotenv").config();
+if (process.env.NODE_ENV === "production") {
+  const missingAuthSettings = ["JWT_SECRET", "ADMIN_PASS"]
+    .filter(name => !(process.env[name] || "").trim());
+  if (missingAuthSettings.length > 0) {
+    throw new Error(`Variables obligatorias en producción: ${missingAuthSettings.join(", ")}.`);
+  }
+  if (process.env.ADMIN_PASS.trim() === "admin123") {
+    throw new Error("ADMIN_PASS no puede utilizar la contraseña predeterminada.");
+  }
+}
+
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -26,7 +37,14 @@ const origWarn = console.warn;
 const origError = console.error;
 
 function recordSystemLog(level, args) {
-  const text = args.map(a => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ");
+  const text = args.map(a => {
+    if (typeof a !== "object" || a === null) return String(a);
+    try {
+      return JSON.stringify(a);
+    } catch {
+      return String(a);
+    }
+  }).join(" ");
   systemLogs.push({ time: new Date().toISOString(), level, text: text.slice(0, 1000) });
   if (systemLogs.length > 80) systemLogs.shift();
 }
@@ -62,14 +80,7 @@ function loadUsers() {
 function saveUsers(users) {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
   if (dbService && dbService.isMongoConnected()) {
-    dbService
-      .saveAllUsers(users)
-      .catch((e) =>
-        console.warn(
-          "⚠️ [DB] Error sincronizando usuarios con MongoDB:",
-          e.message,
-        ),
-      );
+    dbService.saveAllUsers(users).catch(e => console.warn("⚠️ [DB] Error sincronizando usuarios con MongoDB:", e.message));
   }
 }
 
@@ -227,24 +238,14 @@ function saveClients(clients) {
   }));
   fs.writeFileSync(CLIENTS_FILE, JSON.stringify(encryptedList, null, 2), "utf-8");
   if (dbService && dbService.isMongoConnected()) {
-    dbService
-      .syncLocalClientsToMongo(clients)
-      .catch((e) =>
-        console.warn(
-          "⚠️ [DB] Error sincronizando clientes con MongoDB:",
-          e.message,
-        ),
-      );
+    dbService.syncLocalClientsToMongo(clients).catch(e => console.warn("⚠️ [DB] Error sincronizando clientes con MongoDB:", e.message));
   }
 }
 
 function loadClientsForUser(userEmail) {
-  if (!userEmail) return [];
-  const emailKey = userEmail.toLowerCase().trim();
-  const all = loadClients();
-  // Privacidad estricta por cuenta (Blindaje legal y RGPD):
-  // Cada usuario/administrador accede ÚNICAMENTE a sus clientes propios.
-  return all.filter((c) => (c.ownerEmail || "").toLowerCase().trim() === emailKey);
+  // Directorio unificado de la empresa:
+  // Todos los operadores y administradores acceden al directorio centralizado de cobros.
+  return loadClients();
 }
 
 // PERSISTENCIA DE PLANTILLAS Y MENSAJE ACTUAL (AISLADAS POR CUENTA)
@@ -279,30 +280,11 @@ function loadTemplatesForUser(userEmail) {
   return JSON.parse(JSON.stringify(DEFAULT_TEMPLATES));
 }
 
-function saveTemplatesForUser(userEmail, data) {
-  if (!userEmail) return;
-  const emailKey = userEmail.toLowerCase().trim();
-  const store = loadAllTemplatesStore();
-  store[emailKey] = {
-    plantillas: Array.isArray(data.plantillas) ? data.plantillas.slice(0, 20) : DEFAULT_TEMPLATES.plantillas,
-    currentMessage: typeof data.currentMessage === "string" ? data.currentMessage.slice(0, 4096) : DEFAULT_TEMPLATES.currentMessage,
-    delay: typeof data.delay === "number" ? Math.min(Math.max(data.delay, 1), 60) : DEFAULT_TEMPLATES.delay
-  };
-  fs.writeFileSync(TEMPLATES_FILE, JSON.stringify(store, null, 2), "utf-8");
-  if (dbService && dbService.isMongoConnected()) {
-    dbService
-      .saveTemplatesForUser(emailKey, store[emailKey])
-      .catch((e) =>
-        console.warn(
-          "⚠️ [DB] Error sincronizando plantillas en MongoDB:",
-          e.message,
-        ),
-      );
-  }
-}
-
 // Configuración de Seguridad y Autenticación con valores seguros por defecto
-const SECRET_KEY = process.env.JWT_SECRET || "super_secreto_produccion_neo_banco_777";
+const SECRET_KEY = (process.env.JWT_SECRET || "").trim() || crypto.randomBytes(32).toString("hex");
+if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "production") {
+  console.warn("⚠️ [AUTH] JWT_SECRET no configurado; los tokens de desarrollo dejarán de ser válidos al reiniciar.");
+}
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.ADMIN_PASS || "admin123";
 
@@ -395,24 +377,34 @@ if (process.env.CORS_ORIGIN && process.env.CORS_ORIGIN !== "*") {
 }
 
 const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    const isAllowed = allowedOrigins.includes(origin) ||
-      origin.includes("localhost") ||
-      origin.endsWith(".vercel.app") ||
-      origin.endsWith(".onrender.com");
-    if (isAllowed) {
-      return callback(null, true);
-    }
-    return callback(null, true);
-  },
+  origin: (origin, callback) => callback(null, isAllowedOrigin(origin)),
   credentials: true
 };
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+
+  try {
+    const parsedOrigin = new URL(origin);
+    if (allowedOrigins.includes(parsedOrigin.origin)) return true;
+    const isLocalOrigin = parsedOrigin.protocol === "http:" &&
+      (parsedOrigin.hostname === "localhost" ||
+        parsedOrigin.hostname === "127.0.0.1" ||
+        parsedOrigin.hostname === "[::1]");
+    const isHostedOrigin = parsedOrigin.protocol === "https:" &&
+      (parsedOrigin.hostname.endsWith(".vercel.app") ||
+        parsedOrigin.hostname.endsWith(".onrender.com"));
+    return isLocalOrigin || isHostedOrigin;
+  } catch {
+    return false;
+  }
+}
+
 app.use(cors(corsOptions));
 
 const io = new Server(server, {
   cors: {
-    origin: (origin, callback) => callback(null, true),
+    origin: (origin, callback) => callback(null, isAllowedOrigin(origin)),
     credentials: true
   }
 });
@@ -441,6 +433,14 @@ function sanitizePhone(phone) {
 
 function isValidPhone(phone) {
   return /^\d{7,15}$/.test(phone);
+}
+
+function parseDelayMs(delay, fallbackSeconds = 4) {
+  const parsedSeconds = Number.parseFloat(delay);
+  const delayMs = Number.isFinite(parsedSeconds) && parsedSeconds > 0
+    ? parsedSeconds * 1000
+    : fallbackSeconds * 1000;
+  return Math.min(Math.max(delayMs, 1000), 60000);
 }
 
 function isValidEmail(email) {
@@ -501,7 +501,7 @@ app.post("/api/register", async (req, res) => {
     return res.status(400).json({ error: "El correo ya está registrado." });
   }
 
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const code = crypto.randomInt(100000, 1000000).toString();
   pendingRegistrations[cleanEmail] = {
     name: cleanName,
     email: cleanEmail,
@@ -509,10 +509,6 @@ app.post("/api/register", async (req, res) => {
     token: code,
     expires: Date.now() + 15 * 60 * 1000
   };
-
-  console.log("=============================================================");
-  console.log(`🔑 [CÓDIGO DE REGISTRO GMAIL] Código para ${cleanEmail}: ${code}`);
-  console.log("=============================================================");
 
   let emailSent = false;
   try {
@@ -523,11 +519,16 @@ app.post("/api/register", async (req, res) => {
     console.warn("⚠️ [EMAIL NOTICE] No se pudo entregar por transporte primario:", err.message);
   }
 
+  if (!emailSent) {
+    return res.status(503).json({
+      error: "No se pudo enviar el código de verificación. Comprueba el servicio de correo e inténtalo de nuevo.",
+      emailSent: false
+    });
+  }
+
   return res.json({
     success: true,
-    message: emailSent
-      ? "Código de verificación de 6 dígitos enviado a tu correo Gmail. Revisa tu bandeja de entrada o Spam."
-      : "Código generado para tu cuenta. Revisa tu bandeja de entrada de Gmail (o carpeta de Spam) e ingresa el código a continuación.",
+    message: "Código de verificación de 6 dígitos enviado a tu correo Gmail. Revisa tu bandeja de entrada o Spam.",
     emailSent
   });
 });
@@ -542,13 +543,9 @@ app.post("/api/resend-code", authLimiter, async (req, res) => {
     return res.status(400).json({ error: "No hay registro pendiente para este correo. Por favor regístrate nuevamente." });
   }
 
-  const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const newCode = crypto.randomInt(100000, 1000000).toString();
   pending.token = newCode;
   pending.expires = Date.now() + 15 * 60 * 1000;
-
-  console.log("=============================================================");
-  console.log(`🔑 [NUEVO CÓDIGO REENVIADO GMAIL] Código para ${cleanEmail}: ${newCode}`);
-  console.log("=============================================================");
 
   let emailSent = false;
   try {
@@ -559,11 +556,16 @@ app.post("/api/resend-code", authLimiter, async (req, res) => {
     console.warn("⚠️ [EMAIL NOTICE] Error reenviando código:", err.message);
   }
 
+  if (!emailSent) {
+    return res.status(503).json({
+      error: "No se pudo reenviar el código de verificación. Inténtalo de nuevo más tarde.",
+      emailSent: false
+    });
+  }
+
   return res.json({
     success: true,
-    message: emailSent
-      ? "Se ha enviado un nuevo código de 6 dígitos a tu correo Gmail."
-      : "Nuevo código generado. Revisa tu correo Gmail o carpeta de Spam.",
+    message: "Se ha enviado un nuevo código de 6 dígitos a tu correo Gmail.",
     emailSent
   });
 });
@@ -625,19 +627,14 @@ app.post("/api/login", (req, res) => {
     identifier === "yonatanfranco339@gmail.com" ||
     identifier === envAdminUser ||
     identifier === "admin" ||
-    identifier === "usuario@ejemplo.com" ||
     KNOWN_ADMIN_EMAILS.includes(identifier)
   );
 
   const isMasterPass = (
     password === envAdminPass ||
     cleanPass === envAdminPass ||
-    password === "admin123" ||
-    cleanPass === "admin123" ||
     safeCompare(password, envAdminPass) ||
-    safeCompare(cleanPass, envAdminPass) ||
-    safeCompare(password, "admin123") ||
-    safeCompare(cleanPass, "admin123")
+    safeCompare(cleanPass, envAdminPass)
   );
 
   const isHistoricAdminPass = (
@@ -1095,11 +1092,7 @@ app.post("/api/send", authenticateToken, async (req, res) => {
 
   const cleanMessage = message.slice(0, 4096);
 
-  let parsedDelay = delay ? parseFloat(delay) * 1000 : 4000;
-  if (isNaN(parsedDelay)) {
-    parsedDelay = 4000;
-  }
-  parsedDelay = Math.min(Math.max(parsedDelay, 1000), 60000); // Rango 1s a 60s
+  const parsedDelay = parseDelayMs(delay);
 
   res.json({ message: "Envío iniciado", total: numbers.length });
 
@@ -1159,7 +1152,7 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
     return res.status(400).json({ error: "La plantilla del mensaje es requerida." });
   }
 
-  const clients = loadClientsForUser(userEmail);
+  const clients = await dbService.getClientsForUser(userEmail);
   if (!clients || clients.length === 0) {
     return res.status(400).json({ error: "No tienes clientes en tu directorio de cobro personal." });
   }
@@ -1170,8 +1163,7 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
     });
   }
 
-  let parsedDelay = delay ? parseFloat(delay) * 1000 : 4000;
-  parsedDelay = Math.min(Math.max(parsedDelay, 1000), 60000);
+  const parsedDelay = parseDelayMs(delay);
 
   const cleanTemplate = messageTemplate.slice(0, 4096);
 
@@ -1197,8 +1189,8 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
 
       if (numberId) {
         let mensajePersonalizado = cleanTemplate
-          .replace(/{{nombre}}/g, cliente.nombre || "Cliente")
-          .replace(/{{nota}}/g, cliente.nota || "")
+          .replace(/{{nombre}}/g, () => cliente.nombre || "Cliente")
+          .replace(/{{nota}}/g, () => cliente.nota || "")
           .replace(/{{monto}}/g, "su saldo pendiente")
           .replace(/{{vencimiento}}/g, "la fecha límite");
 
@@ -1319,18 +1311,14 @@ function deleteUserAccount(targetEmail) {
   // 1. Eliminar de users.json
   const users = loadUsers();
   const initialUserCount = users.length;
-  const filteredUsers = users.filter(
-    (u) => (u.email || "").toLowerCase().trim() !== emailKey,
-  );
+  const filteredUsers = users.filter(u => (u.email || "").toLowerCase().trim() !== emailKey);
   if (filteredUsers.length !== initialUserCount) {
     saveUsers(filteredUsers);
   }
 
   // 2. Eliminar sus clientes de clients.json
   const allClients = loadClients();
-  const filteredClients = allClients.filter(
-    (c) => (c.ownerEmail || "").toLowerCase().trim() !== emailKey,
-  );
+  const filteredClients = allClients.filter(c => (c.ownerEmail || "").toLowerCase().trim() !== emailKey);
   saveClients(filteredClients);
 
   // 3. Eliminar sus plantillas de templates.json
@@ -1340,20 +1328,13 @@ function deleteUserAccount(targetEmail) {
     try {
       fs.writeFileSync(TEMPLATES_FILE, JSON.stringify(store, null, 2), "utf-8");
     } catch (e) {
-      console.warn(
-        "⚠️ Error guardando templates tras eliminar cuenta:",
-        e.message,
-      );
+      console.warn("⚠️ Error guardando templates tras eliminar cuenta:", e.message);
     }
   }
 
   // 4. Eliminar de MongoDB si está conectado
   if (dbService && dbService.isMongoConnected()) {
-    dbService
-      .deleteUserAccountCompletely(emailKey)
-      .catch((e) =>
-        console.warn("⚠️ [DB] Error eliminando cuenta en MongoDB:", e.message),
-      );
+    dbService.deleteUserAccountCompletely(emailKey).catch(e => console.warn("⚠️ [DB] Error eliminando cuenta en MongoDB:", e.message));
   }
 
   // 5. Destruir sesión activa de WhatsApp en memoria si existe
@@ -1362,10 +1343,7 @@ function deleteUserAccount(targetEmail) {
     try {
       session.client.destroy();
     } catch (e) {
-      console.warn(
-        "⚠️ Error destruyendo cliente al eliminar cuenta:",
-        e.message,
-      );
+      console.warn("⚠️ Error destruyendo cliente al eliminar cuenta:", e.message);
     }
     sessions.delete(emailKey);
   }
@@ -1373,24 +1351,15 @@ function deleteUserAccount(targetEmail) {
   // 5. Borrar carpeta de sesión en disco
   try {
     const clientId = getSessionClientId(emailKey);
-    const sessionPath = path.join(
-      DATA_DIR,
-      ".wwebjs_auth",
-      `session-${clientId}`,
-    );
+    const sessionPath = path.join(DATA_DIR, ".wwebjs_auth", `session-${clientId}`);
     if (fs.existsSync(sessionPath)) {
       fs.rmSync(sessionPath, { recursive: true, force: true });
     }
   } catch (err) {
-    console.warn(
-      "⚠️ Error limpiando archivos de sesión en disco:",
-      err.message,
-    );
+    console.warn("⚠️ Error limpiando archivos de sesión en disco:", err.message);
   }
 
-  console.log(
-    `🗑️ [CUENTA ELIMINADA] Usuario y todos sus datos eliminados: "${emailKey}"`,
-  );
+  console.log(`🗑️ [CUENTA ELIMINADA] Usuario y todos sus datos eliminados: "${emailKey}"`);
   return true;
 }
 
@@ -1559,15 +1528,12 @@ app.get("/api/clients/export", authenticateToken, async (req, res) => {
     const userEmail = req.user.email.toLowerCase();
     const clients = await dbService.getClientsForUser(userEmail);
     res.setHeader("Content-Type", "application/json");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="mis_clientes_${Date.now()}.json"`,
-    );
+    res.setHeader("Content-Disposition", `attachment; filename="mis_clientes_${Date.now()}.json"`);
     return res.json({
       owner: userEmail,
       exportedAt: new Date().toISOString(),
       total: clients.length,
-      clients,
+      clients
     });
   } catch (err) {
     console.error("⚠️ Error exportando clientes:", err.message);
@@ -1576,7 +1542,7 @@ app.get("/api/clients/export", authenticateToken, async (req, res) => {
       owner: req.user.email.toLowerCase(),
       exportedAt: new Date().toISOString(),
       total: clients.length,
-      clients,
+      clients
     });
   }
 });
@@ -1585,33 +1551,23 @@ app.get("/api/clients/export", authenticateToken, async (req, res) => {
 app.post("/api/clients/import", authenticateToken, async (req, res) => {
   try {
     const userEmail = req.user.email.toLowerCase();
-    const rawList = Array.isArray(req.body.clients)
-      ? req.body.clients
-      : Array.isArray(req.body)
-        ? req.body
-        : [];
+    const rawList = Array.isArray(req.body.clients) ? req.body.clients : Array.isArray(req.body) ? req.body : [];
     if (!Array.isArray(rawList) || rawList.length === 0) {
-      return res
-        .status(400)
-        .json({
-          error: "El archivo JSON debe contener un arreglo de clientes válido.",
-        });
+      return res.status(400).json({ error: "El archivo JSON debe contener un arreglo de clientes válido." });
     }
 
     const added = await dbService.importClientsBatch(rawList, userEmail);
-    const updatedUserClients = await dbService.getClientsForUser(userEmail);
-    io.to(userEmail).emit("clients_updated", updatedUserClients);
+    const updatedClients = await dbService.getAllClients();
+    io.emit("clients_updated", updatedClients);
 
     return res.json({
       success: true,
       message: `${added} clientes nuevos importados exitosamente a tu directorio.`,
-      added,
+      added
     });
   } catch (err) {
     console.error("⚠️ Error importando clientes:", err.message);
-    return res
-      .status(500)
-      .json({ error: "Error importando clientes: " + err.message });
+    return res.status(500).json({ error: "Error importando clientes: " + err.message });
   }
 });
 
@@ -1633,8 +1589,8 @@ app.put("/api/templates", authenticateToken, async (req, res) => {
     await dbService.saveTemplatesForUser(userEmail, req.body || {});
     res.json({ success: true });
   } catch (err) {
-    saveTemplatesForUser(req.user.email.toLowerCase(), req.body || {});
-    res.json({ success: true });
+    console.error("⚠️ Error guardando plantillas personales:", err.message);
+    res.status(500).json({ error: "No se pudieron guardar tus plantillas. Inténtalo de nuevo." });
   }
 });
 
@@ -1644,9 +1600,7 @@ app.post("/api/clients", authenticateToken, async (req, res) => {
     const userEmail = req.user.email.toLowerCase();
     const { nombre, numero, nota } = req.body;
     if (!nombre || !numero) {
-      return res
-        .status(400)
-        .json({ error: "El nombre y el número son obligatorios." });
+      return res.status(400).json({ error: "El nombre y el número son obligatorios." });
     }
 
     const cleanNombre = sanitizeText(nombre, 100);
@@ -1654,37 +1608,30 @@ app.post("/api/clients", authenticateToken, async (req, res) => {
     const cleanNumero = sanitizePhone(numero);
 
     if (!cleanNombre || cleanNombre.length < 2) {
-      return res
-        .status(400)
-        .json({ error: "El nombre debe tener al menos 2 caracteres." });
+      return res.status(400).json({ error: "El nombre debe tener al menos 2 caracteres." });
     }
 
     if (!isValidPhone(cleanNumero)) {
       return res.status(400).json({
-        error:
-          "Número inválido. Use formato internacional sin + (ej: 18095550123, entre 7 y 15 dígitos).",
+        error: "Número inválido. Use formato internacional sin + (ej: 18095550123, entre 7 y 15 dígitos)."
       });
     }
 
-    const userClients = await dbService.getClientsForUser(userEmail);
-    const existe = userClients.find((c) => c.numero === cleanNumero);
+    const allClients = await dbService.getAllClients();
+    const existe = allClients.find((c) => c.numero === cleanNumero);
     if (existe) {
-      return res
-        .status(409)
-        .json({
-          error: `El número ${cleanNumero} ya existe en tu directorio.`,
-        });
+      return res.status(409).json({ error: `El número ${cleanNumero} ya existe en tu directorio.` });
     }
 
     const nuevoCliente = await dbService.addClient({
       nombre: cleanNombre,
       numero: cleanNumero,
       nota: cleanNota,
-      ownerEmail: userEmail,
+      ownerEmail: userEmail
     });
 
-    const updatedUserClients = await dbService.getClientsForUser(userEmail);
-    io.to(userEmail).emit("clients_updated", updatedUserClients);
+    const updatedClients = await dbService.getAllClients();
+    io.emit("clients_updated", updatedClients);
     return res.status(201).json(nuevoCliente);
   } catch (err) {
     console.error("⚠️ Error agregando cliente:", err.message);
@@ -1699,27 +1646,20 @@ app.put("/api/clients/:id", authenticateToken, async (req, res) => {
     const id = sanitizeText(req.params.id, 64);
     const { nombre, numero, nota } = req.body;
 
-    const userClients = await dbService.getClientsForUser(userEmail);
-    const existing = userClients.find((c) => c.id === id);
+    const allClients = await dbService.getAllClients();
+    const existing = allClients.find(c => c.id === id);
     if (!existing) {
-      return res
-        .status(404)
-        .json({ error: "Cliente no encontrado en tu directorio." });
+      return res.status(404).json({ error: "Cliente no encontrado en tu directorio." });
     }
 
     const updates = {};
     if (numero) {
       const cleanNumero = sanitizePhone(numero);
       if (!isValidPhone(cleanNumero)) {
-        return res
-          .status(400)
-          .json({
-            error:
-              "Número inválido. Debe contener entre 7 y 15 dígitos numéricos.",
-          });
+        return res.status(400).json({ error: "Número inválido. Debe contener entre 7 y 15 dígitos numéricos." });
       }
-      const duplicado = userClients.find(
-        (c) => c.numero === cleanNumero && c.id !== id,
+      const duplicado = allClients.find(
+        (c) => c.numero === cleanNumero && c.id !== id
       );
       if (duplicado) {
         return res.status(409).json({
@@ -1732,9 +1672,7 @@ app.put("/api/clients/:id", authenticateToken, async (req, res) => {
     if (nombre) {
       const cleanNombre = sanitizeText(nombre, 100);
       if (cleanNombre.length < 2) {
-        return res
-          .status(400)
-          .json({ error: "El nombre debe tener al menos 2 caracteres." });
+        return res.status(400).json({ error: "El nombre debe tener al menos 2 caracteres." });
       }
       updates.nombre = cleanNombre;
     }
@@ -1744,8 +1682,8 @@ app.put("/api/clients/:id", authenticateToken, async (req, res) => {
     }
 
     const updated = await dbService.updateClient(id, userEmail, updates);
-    const updatedUserClients = await dbService.getClientsForUser(userEmail);
-    io.to(userEmail).emit("clients_updated", updatedUserClients);
+    const updatedClients = await dbService.getAllClients();
+    io.emit("clients_updated", updatedClients);
     return res.json(updated || { ...existing, ...updates });
   } catch (err) {
     console.error("⚠️ Error editando cliente:", err.message);
@@ -1758,17 +1696,15 @@ app.delete("/api/clients/:id", authenticateToken, async (req, res) => {
   try {
     const userEmail = req.user.email.toLowerCase();
     const id = sanitizeText(req.params.id, 64);
-    const userClients = await dbService.getClientsForUser(userEmail);
-    const target = userClients.find((c) => c.id === id);
+    const allClients = await dbService.getAllClients();
+    const target = allClients.find(c => c.id === id);
     if (!target) {
-      return res
-        .status(404)
-        .json({ error: "Cliente no encontrado en tu directorio." });
+      return res.status(404).json({ error: "Cliente no encontrado en tu directorio." });
     }
 
     const eliminado = await dbService.deleteClient(id, userEmail);
-    const updatedUserClients = await dbService.getClientsForUser(userEmail);
-    io.to(userEmail).emit("clients_updated", updatedUserClients);
+    const updatedClients = await dbService.getAllClients();
+    io.emit("clients_updated", updatedClients);
     return res.json({
       message: `Cliente "${target.nombre}" eliminado.`,
       cliente: eliminado || target,
@@ -1788,26 +1724,19 @@ app.delete("/api/clients", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Se requiere un arreglo de IDs." });
     }
     if (ids.length > 500) {
-      return res
-        .status(400)
-        .json({ error: "Máximo 500 identificadores por operación." });
+      return res.status(400).json({ error: "Máximo 500 identificadores por operación." });
     }
-    const sanitizedIds = ids.map((id) => sanitizeText(id, 64));
-    const eliminados = await dbService.deleteClientsBulk(
-      sanitizedIds,
-      userEmail,
-    );
-    const updatedUserClients = await dbService.getClientsForUser(userEmail);
-    io.to(userEmail).emit("clients_updated", updatedUserClients);
+    const sanitizedIds = ids.map(id => sanitizeText(id, 64));
+    const eliminados = await dbService.deleteClientsBulk(sanitizedIds, userEmail);
+    const updatedClients = await dbService.getAllClients();
+    io.emit("clients_updated", updatedClients);
     return res.json({
       message: `${eliminados ? eliminados.length : sanitizedIds.length} cliente(s) eliminado(s).`,
       eliminados: eliminados || [],
     });
   } catch (err) {
     console.error("⚠️ Error eliminando clientes masivamente:", err.message);
-    return res
-      .status(500)
-      .json({ error: "Error interno eliminando clientes." });
+    return res.status(500).json({ error: "Error interno eliminando clientes." });
   }
 });
 
@@ -1878,7 +1807,7 @@ app.get("/api/health", (req, res) => {
     service: "WhatsApp Gateway API",
     database: dbStatus.mode,
     isMongoConnected: dbStatus.isMongoConnected,
-    timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -2089,20 +2018,13 @@ process.on("unhandledRejection", (reason) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", async () => {
-  console.log(
-    `🚀 Gateway de WhatsApp (Producción Segura) activo en puerto ${PORT}`,
-  );
+  console.log(`🚀 Gateway de WhatsApp (Producción Segura) activo en puerto ${PORT}`);
   try {
     await dbService.connectToMongo();
   } catch (dbErr) {
-    console.warn(
-      "⚠️ [INICIO] Aviso al inicializar conexión con base de datos:",
-      dbErr.message,
-    );
+    console.warn("⚠️ [INICIO] Aviso al inicializar conexión con base de datos:", dbErr.message);
   }
   initAutoBackup();
   initSeedData();
-  console.log(
-    "✅ Servidor listo y en escucha de conexiones HTTP y WebSockets.",
-  );
+  console.log("✅ Servidor listo y en escucha de conexiones HTTP y WebSockets.");
 });

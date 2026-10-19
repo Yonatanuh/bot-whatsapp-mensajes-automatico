@@ -48,6 +48,54 @@ const PRESETS_DELAY = [
   { label: "15s (Antispam)", val: 15 },
 ];
 
+function normalizeClients(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter(client => client && typeof client === 'object' && !Array.isArray(client))
+    .map(client => ({
+      ...client,
+      id: typeof client.id === 'string' ? client.id : String(client.id ?? ''),
+      nombre: typeof client.nombre === 'string' ? client.nombre : '',
+      numero: typeof client.numero === 'string' ? client.numero : String(client.numero ?? ''),
+      nota: typeof client.nota === 'string' ? client.nota : ''
+    }))
+    .filter(client => client.id && client.numero);
+}
+
+function normalizeTemplates(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter(template => template && typeof template === 'object' && !Array.isArray(template))
+    .map((template, index) => ({
+      id: typeof template.id === 'string' ? template.id : `template-${index}`,
+      nombre: typeof template.nombre === 'string' ? template.nombre : 'Plantilla',
+      texto: typeof template.texto === 'string' ? template.texto : ''
+    }));
+}
+
+function normalizeUsers(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter(user => user && typeof user === 'object' && !Array.isArray(user))
+    .map(user => ({
+      ...user,
+      name: typeof user.name === 'string' ? user.name : '',
+      email: typeof user.email === 'string' ? user.email : '',
+      role: typeof user.role === 'string' ? user.role : 'USER'
+    }));
+}
+
+function normalizeBackups(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter(backup => backup && typeof backup === 'object' && !Array.isArray(backup))
+    .filter(backup => typeof backup.folder === 'string');
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [status, setStatus] = useState('DISCONNECTED');
@@ -107,7 +155,7 @@ export default function Dashboard() {
 
   // Auto-cierre de sesión por inactividad a los 30 minutos sin movimiento (Protege privacidad y libera memoria)
   const INACTIVITY_TIMEOUT_SECONDS = 1800; // 30 minutos
-  const [autoResetEnabled, setAutoResetEnabled] = useState(() => localStorage.getItem('wa_auto_reset_30m') !== 'false');
+  const [autoResetEnabled, setAutoResetEnabled] = useState(true);
   const [secondsLeft, setSecondsLeft] = useState(INACTIVITY_TIMEOUT_SECONDS);
   const lastActivityRef = useRef(Date.now());
 
@@ -143,9 +191,10 @@ export default function Dashboard() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const nums = ev.target.result.split(/[\n,;]+/).map(n => n.trim()).filter(Boolean);
+      const rawText = typeof ev.target.result === 'string' ? ev.target.result : '';
+      const nums = rawText.split(/[\n,;]+/).map(n => n.trim()).filter(Boolean);
       setNumbers(prev => {
-        const old = prev.split('\n').map(n => n.trim()).filter(Boolean);
+        const old = (typeof prev === 'string' ? prev : '').split('\n').map(n => n.trim()).filter(Boolean);
         return Array.from(new Set([...old, ...nums])).join('\n');
       });
       showToast('success', `Importados ${nums.length} números desde el archivo.`);
@@ -175,7 +224,12 @@ export default function Dashboard() {
       const decoded = JSON.parse(atob(token.split('.')[1]));
       if (decoded) {
         if (decoded.role) setUserRole(decoded.role);
-        if (decoded.email) setUserEmail(decoded.email);
+        if (typeof decoded.email === 'string' && decoded.email.trim()) {
+          const accountEmail = decoded.email.trim().toLowerCase();
+          setUserEmail(accountEmail);
+          setDarkMode(localStorage.getItem(`wa_dark_mode:${accountEmail}`) === 'true');
+          setAutoResetEnabled(localStorage.getItem(`wa_auto_reset_30m:${accountEmail}`) !== 'false');
+        }
         
         if (decoded.role === 'ADMIN') {
           fetchPlatformUsers();
@@ -198,12 +252,13 @@ export default function Dashboard() {
     socketRef.current.on('status', s => setStatus(s));
     socketRef.current.on('qr', q => setQr(q));
     socketRef.current.on('log', log => {
+      const logText = typeof log === 'string' ? log : String(log ?? 'Evento recibido');
       setLogs(p => [...p, { 
-        text: log, 
+        text: logText,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        type: log.includes('Error') || log.includes('Error') ? 'error' : log.includes('Aviso') ? 'warn' : 'success'
-      }]);
-      if (log.includes('finalizada') || log.includes('completada')) {
+        type: logText.includes('Error') ? 'error' : logText.includes('Aviso') ? 'warn' : 'success'
+      }].slice(-300));
+      if (logText.includes('finalizada') || logText.includes('completada')) {
         setLoading(false);
         setSimulating(false);
       }
@@ -211,7 +266,7 @@ export default function Dashboard() {
 
     // Escuchar actualizaciones en tiempo real del directorio de clientes
     socketRef.current.on('clients_updated', (updated) => {
-      setClients(Array.isArray(updated) ? updated : []);
+      setClients(normalizeClients(updated));
     });
 
     // Medición inicial de ping, salud, estado de WhatsApp y carga de clientes
@@ -220,11 +275,13 @@ export default function Dashboard() {
     fetchTemplates();
     fetchStatus();
 
-    // Interceptor para expiración de sesión (401/403)
+    // Interceptor para expiración de sesión (401 Unauthorized)
     const interceptor = axios.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+        // Solo redirigir si el token expiró o es inválido (401).
+        // NUNCA en 403 (permiso denegado), para evitar bucles de redirección que apagan la pantalla.
+        if (error.response && error.response.status === 401) {
           localStorage.removeItem('token');
           navigate('/login');
         }
@@ -287,9 +344,12 @@ export default function Dashboard() {
       const res = await axios.get(`${API_BASE}/api/templates`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.data.plantillas) setPlantillas(res.data.plantillas);
-      if (res.data.currentMessage) setMessage(res.data.currentMessage);
-      if (res.data.delay) setDelay(res.data.delay);
+      if (!res.data || typeof res.data !== 'object') {
+        throw new Error('El servidor devolvió una respuesta de plantillas inválida.');
+      }
+      setPlantillas(normalizeTemplates(res.data?.plantillas));
+      if (typeof res.data?.currentMessage === 'string') setMessage(res.data.currentMessage);
+      if (Number.isFinite(res.data?.delay) && res.data.delay > 0) setDelay(res.data.delay);
     } catch (err) {
       console.error('Error fetching templates:', err);
     }
@@ -297,17 +357,29 @@ export default function Dashboard() {
 
   const saveTemplatesToBackend = async (nuevasPlantillas, nuevoMensaje, nuevoDelay) => {
     const token = localStorage.getItem('token');
-    if (!token) return;
+    if (!token) {
+      showToast('error', 'Tu sesión expiró. Inicia sesión nuevamente para guardar los cambios.');
+      return false;
+    }
+    const parsedDelay = Number(nuevoDelay !== undefined ? nuevoDelay : delay);
+    const safeDelay = Number.isFinite(parsedDelay)
+      ? Math.min(Math.max(parsedDelay, 1), 60)
+      : 4;
     try {
       await axios.put(`${API_BASE}/api/templates`, {
-        plantillas: nuevasPlantillas || plantillas,
+        plantillas: normalizeTemplates(nuevasPlantillas || plantillas),
         currentMessage: nuevoMensaje !== undefined ? nuevoMensaje : message,
-        delay: nuevoDelay !== undefined ? nuevoDelay : delay
+        delay: safeDelay
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      setDelay(safeDelay);
+      showToast('success', 'Cambios guardados en tu cuenta.');
+      return true;
     } catch (err) {
-      console.error('Error saving templates:', err);
+      console.error('Error saving personal templates:', err);
+      showToast('error', err.response?.data?.error || 'No se pudieron guardar tus cambios.');
+      return false;
     }
   };
 
@@ -328,8 +400,20 @@ export default function Dashboard() {
 
   const handleToggleAutoReset = (val) => {
     setAutoResetEnabled(val);
-    localStorage.setItem('wa_auto_reset_30m', val ? 'true' : 'false');
+    if (userEmail) {
+      localStorage.setItem(`wa_auto_reset_30m:${userEmail}`, val ? 'true' : 'false');
+    }
     showToast(val ? 'success' : 'info', val ? 'Cierre por inactividad (30 min) activado.' : 'Cierre por inactividad desactivado.');
+  };
+
+  const handleToggleDarkMode = () => {
+    setDarkMode(current => {
+      const next = !current;
+      if (userEmail) {
+        localStorage.setItem(`wa_dark_mode:${userEmail}`, next ? 'true' : 'false');
+      }
+      return next;
+    });
   };
 
   const handleExtendSession = () => {
@@ -377,7 +461,14 @@ export default function Dashboard() {
       const now = Date.now();
       const elapsedIdle = Math.floor((now - lastActivityRef.current) / 1000);
       const remaining = Math.max(0, INACTIVITY_TIMEOUT_SECONDS - elapsedIdle);
-      setSecondsLeft(remaining);
+
+      // Optimización: solo provocar re-render en UI cuando cambia significativamente o en el último minuto
+      setSecondsLeft(prev => {
+        if (remaining <= 60 || Math.abs(prev - remaining) >= 10 || remaining <= 0) {
+          return remaining;
+        }
+        return prev;
+      });
 
       if (remaining === 60) {
         showToast('warn', '⚠️ Inactividad detectada: la sesión se cerrará en 1 minuto si no hay movimiento.');
@@ -398,8 +489,9 @@ export default function Dashboard() {
   }, [autoResetEnabled]);
 
   const formatTimeRemaining = (totalSec) => {
-    const mins = Math.floor(totalSec / 60);
-    const secs = totalSec % 60;
+    const safeTotal = typeof totalSec === 'number' && Number.isFinite(totalSec) ? Math.max(0, totalSec) : 0;
+    const mins = Math.floor(safeTotal / 60);
+    const secs = safeTotal % 60;
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
@@ -433,7 +525,7 @@ export default function Dashboard() {
       const res = await axios.get(`${API_BASE}/api/clients`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setClients(Array.isArray(res.data) ? res.data : []);
+      setClients(normalizeClients(res.data));
     } catch (err) {
       console.error('Error fetching clients:', err);
     } finally {
@@ -449,7 +541,7 @@ export default function Dashboard() {
       const res = await axios.get(`${API_BASE}/api/users`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setPlatformUsers(Array.isArray(res.data) ? res.data : []);
+      setPlatformUsers(normalizeUsers(res.data));
     } catch (err) {
       console.error('Error fetching users:', err);
     } finally {
@@ -464,7 +556,7 @@ export default function Dashboard() {
       const res = await axios.get(`${API_BASE}/api/admin/backups`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setBackups(Array.isArray(res.data) ? res.data : []);
+      setBackups(normalizeBackups(res.data));
     } catch (err) {
       console.error('Error fetching backups:', err);
     }
@@ -675,8 +767,9 @@ export default function Dashboard() {
       }
       
       setClients(prev => {
-        const without = prev.filter(c => c.id !== res.data.id && c.numero !== res.data.numero);
-        return [...without, res.data];
+        const list = Array.isArray(prev) ? prev : [];
+        const without = list.filter(c => c && c.id !== res.data.id && c.numero !== res.data.numero);
+        return normalizeClients([...without, res.data]);
       });
       setNewClientNombre('');
       setNewClientNumero('');
@@ -726,7 +819,7 @@ export default function Dashboard() {
     }
     const nums = clients.map(c => c.numero).filter(Boolean);
     setNumbers(prev => {
-      const old = prev.split('\n').map(n => n.trim()).filter(Boolean);
+      const old = (typeof prev === 'string' ? prev : '').split('\n').map(n => n.trim()).filter(Boolean);
       return Array.from(new Set([...old, ...nums])).join('\n');
     });
     showToast('success', `Se sincronizaron ${nums.length} números a la lista de envíos.`);
@@ -743,7 +836,7 @@ export default function Dashboard() {
   // 1. Envío de Campaña Masiva
   const handleSend = async () => {
     if (loading) return;
-    const nums = numbers.split(/[\n,;]+/).map(n => n.trim()).filter(Boolean);
+    const nums = (typeof numbers === 'string' ? numbers : '').split(/[\n,;]+/).map(n => n.trim()).filter(Boolean);
     if (!nums.length || !message.trim()) { 
       showToast('error', 'Por favor ingrese al menos un destinatario y el mensaje.'); 
       return; 
@@ -866,7 +959,7 @@ export default function Dashboard() {
     setSimulating(true);
     try {
       const token = localStorage.getItem('token');
-      const testList = numbers.split(/[\n,;]+/).map(n => n.trim()).filter(Boolean);
+      const testList = (typeof numbers === 'string' ? numbers : '').split(/[\n,;]+/).map(n => n.trim()).filter(Boolean);
       const targetList = testList.length > 0 ? testList.slice(0, 5) : ['18095550101', '18095550102', '18095550103'];
       await axios.post(`${API_BASE}/api/test/simulate`,
         { numbers: targetList, message: 'Simulación de Cobranza Automatizada WhatsApp', delay: Number(delay) || 2 },
@@ -904,16 +997,16 @@ export default function Dashboard() {
     setTimeout(() => setCopiado(false), 1500);
   };
 
-  const totalDestinatarios = numbers.split(/[\n,;]+/).filter(n => n.trim()).length;
+  const totalDestinatarios = (typeof numbers === 'string' ? numbers : '').split(/[\n,;]+/).filter(n => n && n.trim()).length;
 
-  const filteredClients = clients.filter(c => {
-    if (!clientSearch.trim()) return true;
+  const filteredClients = (Array.isArray(clients) ? clients : []).filter(c => {
+    if (!c || typeof c !== 'object') return false;
+    if (!clientSearch || !clientSearch.trim()) return true;
     const term = clientSearch.toLowerCase();
-    return (
-      (c.nombre && c.nombre.toLowerCase().includes(term)) ||
-      (c.numero && c.numero.includes(term)) ||
-      (c.nota && c.nota.toLowerCase().includes(term))
-    );
+    const nom = (c.nombre || '').toLowerCase();
+    const num = (c.numero || '').toString();
+    const not = (c.nota || '').toLowerCase();
+    return nom.includes(term) || num.includes(term) || not.includes(term);
   });
 
   return (
@@ -1167,7 +1260,7 @@ export default function Dashboard() {
             <button 
               type="button" 
               className="theme-toggle-mini"
-              onClick={() => setDarkMode(d => !d)}
+              onClick={handleToggleDarkMode}
               aria-label="Cambiar tema"
             >
               {darkMode ? <Sun size={13} /> : <Moon size={13} />}
@@ -1229,8 +1322,7 @@ export default function Dashboard() {
                             onClick={() => {
                               const val = p.val;
                               setDelay(val);
-                              saveTemplatesToBackend(plantillas, message, val);
-                              showToast("success", `Ritmo ajustado a ${val} segundos.`);
+                              void saveTemplatesToBackend(plantillas, message, val);
                             }}
                             className="text-[10px] px-2 py-1 rounded-md font-semibold transition-all hover:opacity-90"
                             style={{
@@ -1253,8 +1345,7 @@ export default function Dashboard() {
                           onBlur={() => {
                             const val = Math.max(1, Number(delay) || 4);
                             setDelay(val);
-                            saveTemplatesToBackend(plantillas, message, val);
-                            showToast("success", `Ritmo guardado en ${val}s.`);
+                            void saveTemplatesToBackend(plantillas, message, val);
                           }}
                           className="w-7 text-center text-[10px] font-bold bg-transparent outline-none"
                           style={{ color: "var(--wa-text)" }}
@@ -1368,10 +1459,9 @@ export default function Dashboard() {
                           <>
                             <button
                               type="button"
-                              onClick={() => {
-                                setIsEditingMessage(false);
-                                saveTemplatesToBackend(plantillas, message, delay);
-                                showToast("success", "Mensaje guardado correctamente.");
+                              onClick={async () => {
+                                const saved = await saveTemplatesToBackend(plantillas, message, delay);
+                                if (saved) setIsEditingMessage(false);
                               }}
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#00a884] text-white hover:bg-[#008f6f] transition-colors shadow-sm"
                               title="Guardar cambios del mensaje"
@@ -1641,8 +1731,8 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* == PESTAÑA 2: LABORATORIO DE PRUEBAS & DIAGNÓSTICO (SOLO ADMIN) == */}
-          {activeTab === 'testing' && userRole === 'ADMIN' && (
+          {/* == PESTAÑA 2: LABORATORIO DE PRUEBAS & DIAGNÓSTICO DEL SISTEMA == */}
+          {activeTab === 'testing' && (
             <div className="space-y-6">
               
               {/* Tarjeta de Métricas y Diagnóstico General */}
@@ -2237,7 +2327,14 @@ export default function Dashboard() {
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {filteredClients.map((c) => {
-                          const iniciales = c.nombre ? c.nombre.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() : 'CL';
+                          const iniciales = (c && c.nombre ? c.nombre : 'CL')
+                            .trim()
+                            .split(/\s+/)
+                            .filter(Boolean)
+                            .map(n => (n ? n[0] : ''))
+                            .slice(0, 2)
+                            .join('')
+                            .toUpperCase() || 'CL';
                           return (
                             <div 
                               key={c.id} 
@@ -2526,6 +2623,23 @@ export default function Dashboard() {
             </div>
           )}
 
+          {activeTab === 'users' && userRole !== 'ADMIN' && (
+            <div className="wa-card text-center py-12 space-y-3">
+              <ShieldCheck size={36} className="mx-auto" style={{ color: "var(--wa-button)" }} />
+              <h3 className="text-sm font-bold" style={{ color: "var(--wa-text)" }}>Sección de Administración</h3>
+              <p className="text-xs max-w-md mx-auto" style={{ color: "var(--wa-muted)" }}>
+                La gestión de cuentas y respaldos está reservada para las cuentas de Administrador Principal.
+              </p>
+              <button
+                type="button"
+                onClick={() => setActiveTab('dashboard')}
+                className="btn-wa-primary text-xs mx-auto mt-2"
+              >
+                Volver a Consola de Envío
+              </button>
+            </div>
+          )}
+
           {activeTab === 'settings' && (
             <div className="wa-card max-w-xl space-y-5">
               <div className="pb-3 border-b" style={{ borderColor: "var(--wa-border)" }}>
@@ -2546,7 +2660,7 @@ export default function Dashboard() {
                       max="60"
                       value={delay}
                       onChange={e => setDelay(e.target.value)}
-                        onBlur={() => { saveTemplatesToBackend(plantillas, message, delay); showToast("success", "Intervalo guardado."); }}
+                        onBlur={() => { void saveTemplatesToBackend(plantillas, message, delay); }}
                       className="w-14 text-center font-bold text-xs p-1.5 rounded-lg border outline-none"
                       style={{ background: "var(--wa-card)", borderColor: "var(--wa-border)", color: "var(--wa-button)" }}
                     />
@@ -2664,10 +2778,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-
-
-
-
-
-
