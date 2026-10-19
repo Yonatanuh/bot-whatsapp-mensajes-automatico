@@ -147,20 +147,28 @@ function initSeedData() {
   try {
     initSeedUsers();
 
-    // Auto-restaurar clientes si no existen o están vacíos
-    if (!fs.existsSync(CLIENTS_FILE) || loadClients().length === 0) {
-      const seedClientsFile = path.join(SEEDS_DIR, "clients.json");
-      if (fs.existsSync(seedClientsFile)) {
-        try {
-          const raw = fs.readFileSync(seedClientsFile, "utf-8");
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            saveClients(parsed);
-            console.log(`📁 [SEMILLAS] ${parsed.length} clientes restaurados automáticamente desde semillas.`);
+    // Auto-restaurar clientes si no existen o sincronizar clientes faltantes por cuenta
+    const currentClients = loadClients();
+    const seedClientsFile = path.join(SEEDS_DIR, "clients.json");
+    if (fs.existsSync(seedClientsFile)) {
+      try {
+        const raw = fs.readFileSync(seedClientsFile, "utf-8");
+        const seedList = JSON.parse(raw);
+        if (Array.isArray(seedList) && seedList.length > 0) {
+          if (currentClients.length === 0) {
+            saveClients(seedList);
+            console.log(`📁 [SEMILLAS] ${seedList.length} clientes restaurados automáticamente desde semillas.`);
+          } else {
+            const existingIds = new Set(currentClients.map(c => c.id));
+            const missingSeeds = seedList.filter(s => !existingIds.has(s.id));
+            if (missingSeeds.length > 0) {
+              saveClients([...currentClients, ...missingSeeds]);
+              console.log(`📁 [SEMILLAS] ${missingSeeds.length} clientes iniciales sincronizados para sus respectivas cuentas.`);
+            }
           }
-        } catch (e) {
-          console.warn("⚠️ Error cargando clientes semilla:", e.message);
         }
+      } catch (e) {
+        console.warn("⚠️ Error cargando clientes semilla:", e.message);
       }
     }
 
@@ -213,14 +221,9 @@ function loadClientsForUser(userEmail) {
   if (!userEmail) return [];
   const emailKey = userEmail.toLowerCase().trim();
   const all = loadClients();
-  const isAdmin = KNOWN_ADMIN_EMAILS.includes(emailKey) || emailKey === "admin";
-  return all.filter((c) => {
-    const owner = (c.ownerEmail || "").toLowerCase().trim();
-    if (isAdmin) {
-      return KNOWN_ADMIN_EMAILS.includes(owner) || owner === "admin" || !owner || owner === emailKey;
-    }
-    return owner === emailKey;
-  });
+  // Privacidad estricta por cuenta (Blindaje legal y RGPD):
+  // Cada usuario/administrador accede ÚNICAMENTE a sus clientes propios.
+  return all.filter((c) => (c.ownerEmail || "").toLowerCase().trim() === emailKey);
 }
 
 // PERSISTENCIA DE PLANTILLAS Y MENSAJE ACTUAL (AISLADAS POR CUENTA)
@@ -251,11 +254,6 @@ function loadTemplatesForUser(userEmail) {
   const store = loadAllTemplatesStore();
   if (store[emailKey]) {
     return store[emailKey];
-  }
-  if (KNOWN_ADMIN_EMAILS.includes(emailKey) || emailKey === "admin") {
-    for (const adminEm of KNOWN_ADMIN_EMAILS) {
-      if (store[adminEm]) return store[adminEm];
-    }
   }
   return JSON.parse(JSON.stringify(DEFAULT_TEMPLATES));
 }

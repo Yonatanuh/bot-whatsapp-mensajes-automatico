@@ -25,8 +25,8 @@ export default function Login() {
 
   useEffect(() => {
     const reason = localStorage.getItem("wa_logout_reason");
-    if (reason === "timeout_30m") {
-      setSessionNotice("Tu sesión se reinició automáticamente tras 30 minutos para liberar memoria y evitar errores. Por favor, vuelve a ingresar.");
+    if (reason === "inactivity_30m" || reason === "timeout_30m") {
+      setSessionNotice("Tu sesión se cerró automáticamente tras 30 minutos de inactividad para proteger la privacidad de los datos de tus clientes y liberar memoria. Por favor, vuelve a ingresar.");
       localStorage.removeItem("wa_logout_reason");
     }
     // Si ya existe una sesión previa, redirigir al Dashboard
