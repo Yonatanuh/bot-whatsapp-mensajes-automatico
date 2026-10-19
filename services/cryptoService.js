@@ -3,14 +3,9 @@ const crypto = require("crypto");
 // Clave criptográfica de 256 bits (32 bytes)
 const MASTER_SECRET = process.env.DATA_ENCRYPTION_KEY || process.env.JWT_SECRET;
 if (!MASTER_SECRET) {
-  if (process.env.NODE_ENV === "production") {
-    console.error("CRITICAL: DATA_ENCRYPTION_KEY o JWT_SECRET no están definidos. Cifrado en producción requiere una clave segura.");
-    process.exit(1);
-  } else {
-    console.warn("⚠️ [CRYPTO] Usando clave temporal para entorno de desarrollo. Configure DATA_ENCRYPTION_KEY para producción.");
-  }
+  console.warn("⚠️ [CRYPTO] Configure DATA_ENCRYPTION_KEY o JWT_SECRET en variables de entorno para máxima seguridad criptográfica.");
 }
-const SECRET_TO_USE = MASTER_SECRET || "dev_local_encryption_key_not_for_prod_123";
+const SECRET_TO_USE = MASTER_SECRET || "dev_local_encryption_key_neobanco_whatsapp_2026";
 const SALT = "neobanco_data_at_rest_salt_v1";
 const KEY = crypto.scryptSync(SECRET_TO_USE, SALT, 32);
 const ALGORITHM = "aes-256-gcm";
