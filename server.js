@@ -1433,6 +1433,63 @@ app.get("/api/admin/backup/:folder/download", authenticateToken, authorizeAdmin,
   }
 });
 
+// POST: Restaurar o importar respaldo completo desde archivo JSON subido por el Administrador
+app.post("/api/admin/backup/upload", authenticateToken, authorizeAdmin, (req, res) => {
+  try {
+    const { clients: newClients, templates: newTemplates } = req.body;
+    let clientsRestored = 0;
+
+    if (Array.isArray(newClients) && newClients.length > 0) {
+      const existing = loadClients();
+      const existingIds = new Set(existing.map(c => c.id));
+      const toAdd = [];
+      for (const item of newClients) {
+        if (!item.id || !existingIds.has(item.id)) {
+          toAdd.push({
+            id: item.id || Date.now().toString() + Math.random().toString().slice(2, 6),
+            nombre: sanitizeText(item.nombre || item.name || "Sin nombre", 100),
+            numero: sanitizePhone(item.numero || item.phone),
+            nota: sanitizeText(item.nota || "", 255),
+            ownerEmail: item.ownerEmail || req.user.email,
+            agregadoEl: item.agregadoEl || new Date().toISOString()
+          });
+        }
+      }
+      if (toAdd.length > 0) {
+        saveClients([...existing, ...toAdd]);
+        clientsRestored = toAdd.length;
+      }
+    }
+
+    if (newTemplates && typeof newTemplates === "object") {
+      const store = loadAllTemplatesStore();
+      Object.assign(store, newTemplates);
+      try {
+        fs.writeFileSync(TEMPLATES_FILE, JSON.stringify(store, null, 2), "utf-8");
+      } catch (e) {
+        console.warn("⚠️ Error guardando plantillas importadas:", e.message);
+      }
+    }
+
+    initSeedUsers();
+    createBackup("MANUAL_UPLOAD");
+
+    io.to(req.user.email.toLowerCase()).emit(
+      "log",
+      `📥 [RESPALDO IMPORTADO] Se restauraron ${clientsRestored} clientes y la configuración desde archivo externo.`
+    );
+
+    return res.json({
+      success: true,
+      message: `Respaldo importado exitosamente. Se sincronizaron ${clientsRestored} clientes.`,
+      clientsRestored
+    });
+  } catch (err) {
+    console.error("⚠️ Error importando respaldo JSON:", err.message);
+    return res.status(400).json({ error: "Error procesando archivo de respaldo: " + err.message });
+  }
+});
+
 // GET: Exportar clientes propios del usuario en formato JSON para respaldo personal
 app.get("/api/clients/export", authenticateToken, (req, res) => {
   const userEmail = req.user.email.toLowerCase();
@@ -1445,6 +1502,51 @@ app.get("/api/clients/export", authenticateToken, (req, res) => {
     total: clients.length,
     clients
   });
+});
+
+// POST: Importar lista de clientes desde JSON al directorio del usuario
+app.post("/api/clients/import", authenticateToken, (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    const rawList = Array.isArray(req.body.clients) ? req.body.clients : Array.isArray(req.body) ? req.body : [];
+    if (!Array.isArray(rawList) || rawList.length === 0) {
+      return res.status(400).json({ error: "El archivo JSON debe contener un arreglo de clientes válido." });
+    }
+
+    const all = loadClients();
+    const existingPhones = new Set(all.map(c => sanitizePhone(c.numero)));
+    let added = 0;
+
+    for (const item of rawList) {
+      const cleanPhone = sanitizePhone(item.numero || item.phone);
+      const cleanName = sanitizeText(item.nombre || item.name || "Sin nombre", 100);
+      if (cleanPhone && isValidPhone(cleanPhone) && !existingPhones.has(cleanPhone)) {
+        all.push({
+          id: Date.now().toString() + Math.random().toString().slice(2, 6),
+          nombre: cleanName,
+          numero: cleanPhone,
+          nota: sanitizeText(item.nota || "", 255),
+          ownerEmail: userEmail,
+          agregadoEl: new Date().toISOString()
+        });
+        existingPhones.add(cleanPhone);
+        added++;
+      }
+    }
+
+    if (added > 0) {
+      saveClients(all);
+    }
+
+    return res.json({
+      success: true,
+      message: `${added} clientes nuevos importados exitosamente a tu directorio.`,
+      added
+    });
+  } catch (err) {
+    console.error("⚠️ Error importando clientes:", err.message);
+    return res.status(500).json({ error: "Error importando clientes: " + err.message });
+  }
 });
 
 // GET: Obtener plantillas personales de la cuenta

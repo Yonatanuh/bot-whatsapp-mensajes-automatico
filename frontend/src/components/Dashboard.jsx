@@ -126,6 +126,8 @@ export default function Dashboard() {
   const logsEndRef = useRef(null);
   const socketRef = useRef(null);
   const fileInputRef = useRef(null);
+  const fileInputClientsRef = useRef(null);
+  const fileInputBackupRef = useRef(null);
   const textareaRef = useRef(null);
 
   const showToast = (tipo, mensaje) => {
@@ -535,6 +537,55 @@ export default function Dashboard() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     showToast('success', `Exportados ${clients.length} clientes a archivo JSON.`);
+  };
+
+  const handleImportClientsFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const parsed = JSON.parse(event.target.result);
+        const token = localStorage.getItem('token');
+        const res = await axios.post(`${API_BASE}/api/clients/import`, parsed, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        showToast('success', res.data.message || 'Clientes importados exitosamente.');
+        fetchClients();
+      } catch (err) {
+        showToast('error', err.response?.data?.error || 'Error al procesar el archivo JSON de clientes.');
+      } finally {
+        if (fileInputClientsRef.current) fileInputClientsRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleUploadBackupFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const parsed = JSON.parse(event.target.result);
+        const token = localStorage.getItem('token');
+        setBackupLoading(true);
+        const res = await axios.post(`${API_BASE}/api/admin/backup/upload`, parsed, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        showToast('success', res.data.message || 'Respaldo importado exitosamente.');
+        fetchBackups();
+        fetchClients();
+        fetchTemplates();
+        fetchPlatformUsers();
+      } catch (err) {
+        showToast('error', err.response?.data?.error || 'Error al procesar archivo de respaldo.');
+      } finally {
+        setBackupLoading(false);
+        if (fileInputBackupRef.current) fileInputBackupRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleDeleteOwnAccount = async () => {
@@ -2112,6 +2163,23 @@ export default function Dashboard() {
                           <span className="hidden sm:inline">Descargar BD</span>
                         </button>
 
+                        <input
+                          type="file"
+                          ref={fileInputClientsRef}
+                          onChange={handleImportClientsFile}
+                          accept=".json"
+                          style={{ display: "none" }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputClientsRef.current && fileInputClientsRef.current.click()}
+                          className="btn-wa-secondary text-xs py-2 px-3.5"
+                          title="Subir / Importar archivo de clientes JSON a tu directorio"
+                        >
+                          <Upload size={13} />
+                          <span className="hidden sm:inline">Importar JSON</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={handleSyncClientsToMassSend}
@@ -2350,15 +2418,34 @@ export default function Dashboard() {
                       Respaldo diario automático de base de datos y sesión de WhatsApp (.wwebjs_auth) para migración sin re-escanear QR.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleCreateBackup}
-                    disabled={backupLoading}
-                    className="btn-wa-primary text-xs py-2 px-3 flex items-center gap-1.5"
-                  >
-                    {backupLoading ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-                    <span>Crear Respaldo Ahora</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      ref={fileInputBackupRef}
+                      onChange={handleUploadBackupFile}
+                      accept=".json"
+                      style={{ display: "none" }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputBackupRef.current && fileInputBackupRef.current.click()}
+                      disabled={backupLoading}
+                      className="btn-wa-secondary text-xs py-2 px-3 flex items-center gap-1.5"
+                      title="Subir y restaurar un archivo de respaldo JSON desde tu computadora"
+                    >
+                      <Upload size={13} />
+                      <span>Subir Respaldo</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCreateBackup}
+                      disabled={backupLoading}
+                      className="btn-wa-primary text-xs py-2 px-3 flex items-center gap-1.5"
+                    >
+                      {backupLoading ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                      <span>Crear Respaldo Ahora</span>
+                    </button>
+                  </div>
                 </div>
 
                 {backups.length === 0 ? (
