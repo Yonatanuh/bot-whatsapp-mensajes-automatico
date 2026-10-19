@@ -17,6 +17,7 @@ const bcrypt = require("bcryptjs");
 
 const { encryptField, decryptField } = require("./services/cryptoService");
 const { createBackup, restoreBackup, getBackupDownloadData, listBackups, initAutoBackup } = require("./services/backupService");
+const dbService = require("./services/dbService");
 
 // ── BUFFER DE LOGS DEL SISTEMA PARA DIAGNÓSTICO EN NUBE ──
 const systemLogs = [];
@@ -60,6 +61,16 @@ function loadUsers() {
 }
 function saveUsers(users) {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
+  if (dbService && dbService.isMongoConnected()) {
+    dbService
+      .saveAllUsers(users)
+      .catch((e) =>
+        console.warn(
+          "⚠️ [DB] Error sincronizando usuarios con MongoDB:",
+          e.message,
+        ),
+      );
+  }
 }
 
 const SEEDS_DIR = path.join(__dirname, "seeds");
@@ -215,6 +226,16 @@ function saveClients(clients) {
     nota: encryptField(c.nota)
   }));
   fs.writeFileSync(CLIENTS_FILE, JSON.stringify(encryptedList, null, 2), "utf-8");
+  if (dbService && dbService.isMongoConnected()) {
+    dbService
+      .syncLocalClientsToMongo(clients)
+      .catch((e) =>
+        console.warn(
+          "⚠️ [DB] Error sincronizando clientes con MongoDB:",
+          e.message,
+        ),
+      );
+  }
 }
 
 function loadClientsForUser(userEmail) {
@@ -268,6 +289,16 @@ function saveTemplatesForUser(userEmail, data) {
     delay: typeof data.delay === "number" ? Math.min(Math.max(data.delay, 1), 60) : DEFAULT_TEMPLATES.delay
   };
   fs.writeFileSync(TEMPLATES_FILE, JSON.stringify(store, null, 2), "utf-8");
+  if (dbService && dbService.isMongoConnected()) {
+    dbService
+      .saveTemplatesForUser(emailKey, store[emailKey])
+      .catch((e) =>
+        console.warn(
+          "⚠️ [DB] Error sincronizando plantillas en MongoDB:",
+          e.message,
+        ),
+      );
+  }
 }
 
 // Configuración de Seguridad y Autenticación con valores seguros por defecto
@@ -1256,10 +1287,16 @@ app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 
 // GET: Listar los clientes propios de la cuenta autenticada
-app.get("/api/clients", authenticateToken, (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  const clients = loadClientsForUser(userEmail);
-  res.json(clients);
+app.get("/api/clients", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    const clients = await dbService.getClientsForUser(userEmail);
+    res.json(clients);
+  } catch (err) {
+    console.error("⚠️ Error consultando clientes:", err.message);
+    const clients = loadClientsForUser(req.user.email.toLowerCase());
+    res.json(clients);
+  }
 });
 
 // GET: Listar todos los usuarios (Solo Administrador)
@@ -1282,14 +1319,18 @@ function deleteUserAccount(targetEmail) {
   // 1. Eliminar de users.json
   const users = loadUsers();
   const initialUserCount = users.length;
-  const filteredUsers = users.filter(u => (u.email || "").toLowerCase().trim() !== emailKey);
+  const filteredUsers = users.filter(
+    (u) => (u.email || "").toLowerCase().trim() !== emailKey,
+  );
   if (filteredUsers.length !== initialUserCount) {
     saveUsers(filteredUsers);
   }
 
   // 2. Eliminar sus clientes de clients.json
   const allClients = loadClients();
-  const filteredClients = allClients.filter(c => (c.ownerEmail || "").toLowerCase().trim() !== emailKey);
+  const filteredClients = allClients.filter(
+    (c) => (c.ownerEmail || "").toLowerCase().trim() !== emailKey,
+  );
   saveClients(filteredClients);
 
   // 3. Eliminar sus plantillas de templates.json
@@ -1299,17 +1340,32 @@ function deleteUserAccount(targetEmail) {
     try {
       fs.writeFileSync(TEMPLATES_FILE, JSON.stringify(store, null, 2), "utf-8");
     } catch (e) {
-      console.warn("⚠️ Error guardando templates tras eliminar cuenta:", e.message);
+      console.warn(
+        "⚠️ Error guardando templates tras eliminar cuenta:",
+        e.message,
+      );
     }
   }
 
-  // 4. Destruir sesión activa de WhatsApp en memoria si existe
+  // 4. Eliminar de MongoDB si está conectado
+  if (dbService && dbService.isMongoConnected()) {
+    dbService
+      .deleteUserAccountCompletely(emailKey)
+      .catch((e) =>
+        console.warn("⚠️ [DB] Error eliminando cuenta en MongoDB:", e.message),
+      );
+  }
+
+  // 5. Destruir sesión activa de WhatsApp en memoria si existe
   const session = sessions.get(emailKey);
   if (session && session.client) {
     try {
       session.client.destroy();
     } catch (e) {
-      console.warn("⚠️ Error destruyendo cliente al eliminar cuenta:", e.message);
+      console.warn(
+        "⚠️ Error destruyendo cliente al eliminar cuenta:",
+        e.message,
+      );
     }
     sessions.delete(emailKey);
   }
@@ -1317,15 +1373,24 @@ function deleteUserAccount(targetEmail) {
   // 5. Borrar carpeta de sesión en disco
   try {
     const clientId = getSessionClientId(emailKey);
-    const sessionPath = path.join(DATA_DIR, ".wwebjs_auth", `session-${clientId}`);
+    const sessionPath = path.join(
+      DATA_DIR,
+      ".wwebjs_auth",
+      `session-${clientId}`,
+    );
     if (fs.existsSync(sessionPath)) {
       fs.rmSync(sessionPath, { recursive: true, force: true });
     }
   } catch (err) {
-    console.warn("⚠️ Error limpiando archivos de sesión en disco:", err.message);
+    console.warn(
+      "⚠️ Error limpiando archivos de sesión en disco:",
+      err.message,
+    );
   }
 
-  console.log(`🗑️ [CUENTA ELIMINADA] Usuario y todos sus datos eliminados: "${emailKey}"`);
+  console.log(
+    `🗑️ [CUENTA ELIMINADA] Usuario y todos sus datos eliminados: "${emailKey}"`,
+  );
   return true;
 }
 
@@ -1489,209 +1554,261 @@ app.post("/api/admin/backup/upload", authenticateToken, authorizeAdmin, (req, re
 });
 
 // GET: Exportar clientes propios del usuario en formato JSON para respaldo personal
-app.get("/api/clients/export", authenticateToken, (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  const clients = loadClientsForUser(userEmail);
-  res.setHeader("Content-Type", "application/json");
-  res.setHeader("Content-Disposition", `attachment; filename="mis_clientes_${Date.now()}.json"`);
-  return res.json({
-    owner: userEmail,
-    exportedAt: new Date().toISOString(),
-    total: clients.length,
-    clients
-  });
+app.get("/api/clients/export", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    const clients = await dbService.getClientsForUser(userEmail);
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="mis_clientes_${Date.now()}.json"`,
+    );
+    return res.json({
+      owner: userEmail,
+      exportedAt: new Date().toISOString(),
+      total: clients.length,
+      clients,
+    });
+  } catch (err) {
+    console.error("⚠️ Error exportando clientes:", err.message);
+    const clients = loadClientsForUser(req.user.email.toLowerCase());
+    return res.json({
+      owner: req.user.email.toLowerCase(),
+      exportedAt: new Date().toISOString(),
+      total: clients.length,
+      clients,
+    });
+  }
 });
 
 // POST: Importar lista de clientes desde JSON al directorio del usuario
-app.post("/api/clients/import", authenticateToken, (req, res) => {
+app.post("/api/clients/import", authenticateToken, async (req, res) => {
   try {
     const userEmail = req.user.email.toLowerCase();
-    const rawList = Array.isArray(req.body.clients) ? req.body.clients : Array.isArray(req.body) ? req.body : [];
+    const rawList = Array.isArray(req.body.clients)
+      ? req.body.clients
+      : Array.isArray(req.body)
+        ? req.body
+        : [];
     if (!Array.isArray(rawList) || rawList.length === 0) {
-      return res.status(400).json({ error: "El archivo JSON debe contener un arreglo de clientes válido." });
-    }
-
-    const all = loadClients();
-    const existingPhones = new Set(all.map(c => sanitizePhone(c.numero)));
-    let added = 0;
-
-    for (const item of rawList) {
-      const cleanPhone = sanitizePhone(item.numero || item.phone);
-      const cleanName = sanitizeText(item.nombre || item.name || "Sin nombre", 100);
-      if (cleanPhone && isValidPhone(cleanPhone) && !existingPhones.has(cleanPhone)) {
-        all.push({
-          id: Date.now().toString() + Math.random().toString().slice(2, 6),
-          nombre: cleanName,
-          numero: cleanPhone,
-          nota: sanitizeText(item.nota || "", 255),
-          ownerEmail: userEmail,
-          agregadoEl: new Date().toISOString()
+      return res
+        .status(400)
+        .json({
+          error: "El archivo JSON debe contener un arreglo de clientes válido.",
         });
-        existingPhones.add(cleanPhone);
-        added++;
-      }
     }
 
-    if (added > 0) {
-      saveClients(all);
-    }
+    const added = await dbService.importClientsBatch(rawList, userEmail);
+    const updatedUserClients = await dbService.getClientsForUser(userEmail);
+    io.to(userEmail).emit("clients_updated", updatedUserClients);
 
     return res.json({
       success: true,
       message: `${added} clientes nuevos importados exitosamente a tu directorio.`,
-      added
+      added,
     });
   } catch (err) {
     console.error("⚠️ Error importando clientes:", err.message);
-    return res.status(500).json({ error: "Error importando clientes: " + err.message });
+    return res
+      .status(500)
+      .json({ error: "Error importando clientes: " + err.message });
   }
 });
 
 // GET: Obtener plantillas personales de la cuenta
-app.get("/api/templates", authenticateToken, (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  res.json(loadTemplatesForUser(userEmail));
+app.get("/api/templates", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    const tpls = await dbService.getTemplatesForUser(userEmail);
+    res.json(tpls);
+  } catch (err) {
+    res.json(loadTemplatesForUser(req.user.email.toLowerCase()));
+  }
 });
 
 // PUT: Guardar plantillas personales de la cuenta
-app.put("/api/templates", authenticateToken, (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  saveTemplatesForUser(userEmail, req.body || {});
-  res.json({ success: true });
+app.put("/api/templates", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    await dbService.saveTemplatesForUser(userEmail, req.body || {});
+    res.json({ success: true });
+  } catch (err) {
+    saveTemplatesForUser(req.user.email.toLowerCase(), req.body || {});
+    res.json({ success: true });
+  }
 });
 
 // POST: Agregar un cliente nuevo a la cuenta autenticada
-app.post("/api/clients", authenticateToken, (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  const { nombre, numero, nota } = req.body;
-  if (!nombre || !numero) {
-    return res.status(400).json({ error: "El nombre y el número son obligatorios." });
-  }
+app.post("/api/clients", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    const { nombre, numero, nota } = req.body;
+    if (!nombre || !numero) {
+      return res
+        .status(400)
+        .json({ error: "El nombre y el número son obligatorios." });
+    }
 
-  const cleanNombre = sanitizeText(nombre, 100);
-  const cleanNota = sanitizeText(nota || "", 500);
-  const cleanNumero = sanitizePhone(numero);
+    const cleanNombre = sanitizeText(nombre, 100);
+    const cleanNota = sanitizeText(nota || "", 500);
+    const cleanNumero = sanitizePhone(numero);
 
-  if (!cleanNombre || cleanNombre.length < 2) {
-    return res.status(400).json({ error: "El nombre debe tener al menos 2 caracteres." });
-  }
+    if (!cleanNombre || cleanNombre.length < 2) {
+      return res
+        .status(400)
+        .json({ error: "El nombre debe tener al menos 2 caracteres." });
+    }
 
-  if (!isValidPhone(cleanNumero)) {
-    return res.status(400).json({
-      error: "Número inválido. Use formato internacional sin + (ej: 18095550123, entre 7 y 15 dígitos)."
+    if (!isValidPhone(cleanNumero)) {
+      return res.status(400).json({
+        error:
+          "Número inválido. Use formato internacional sin + (ej: 18095550123, entre 7 y 15 dígitos).",
+      });
+    }
+
+    const userClients = await dbService.getClientsForUser(userEmail);
+    const existe = userClients.find((c) => c.numero === cleanNumero);
+    if (existe) {
+      return res
+        .status(409)
+        .json({
+          error: `El número ${cleanNumero} ya existe en tu directorio.`,
+        });
+    }
+
+    const nuevoCliente = await dbService.addClient({
+      nombre: cleanNombre,
+      numero: cleanNumero,
+      nota: cleanNota,
+      ownerEmail: userEmail,
     });
+
+    const updatedUserClients = await dbService.getClientsForUser(userEmail);
+    io.to(userEmail).emit("clients_updated", updatedUserClients);
+    return res.status(201).json(nuevoCliente);
+  } catch (err) {
+    console.error("⚠️ Error agregando cliente:", err.message);
+    return res.status(500).json({ error: "Error interno guardando cliente." });
   }
-
-  const allClients = loadClients();
-  const userClients = allClients.filter(c => (c.ownerEmail || "").toLowerCase() === userEmail);
-  const existe = userClients.find((c) => c.numero === cleanNumero);
-  if (existe) {
-    return res.status(409).json({ error: `El número ${cleanNumero} ya existe en tu directorio.` });
-  }
-
-  const nuevoCliente = {
-    id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
-    nombre: cleanNombre,
-    numero: cleanNumero,
-    nota: cleanNota,
-    ownerEmail: userEmail,
-    agregadoEl: new Date().toISOString(),
-  };
-
-  allClients.push(nuevoCliente);
-  saveClients(allClients);
-
-  const updatedUserClients = allClients.filter(c => (c.ownerEmail || "").toLowerCase() === userEmail);
-  io.to(userEmail).emit("clients_updated", updatedUserClients);
-  return res.status(201).json(nuevoCliente);
 });
 
 // PUT: Editar un cliente existente de la cuenta autenticada
-app.put("/api/clients/:id", authenticateToken, (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  const id = sanitizeText(req.params.id, 64);
-  const { nombre, numero, nota } = req.body;
+app.put("/api/clients/:id", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    const id = sanitizeText(req.params.id, 64);
+    const { nombre, numero, nota } = req.body;
 
-  const allClients = loadClients();
-  const idx = allClients.findIndex((c) => c.id === id && (c.ownerEmail || "").toLowerCase() === userEmail);
-  if (idx === -1) {
-    return res.status(404).json({ error: "Cliente no encontrado en tu directorio." });
-  }
-
-  if (numero) {
-    const cleanNumero = sanitizePhone(numero);
-    if (!isValidPhone(cleanNumero)) {
-      return res.status(400).json({ error: "Número inválido. Debe contener entre 7 y 15 dígitos numéricos." });
+    const userClients = await dbService.getClientsForUser(userEmail);
+    const existing = userClients.find((c) => c.id === id);
+    if (!existing) {
+      return res
+        .status(404)
+        .json({ error: "Cliente no encontrado en tu directorio." });
     }
-    const duplicado = allClients.find(
-      (c) => (c.ownerEmail || "").toLowerCase() === userEmail && c.numero === cleanNumero && c.id !== id,
-    );
-    if (duplicado) {
-      return res.status(409).json({
-        error: `El número ${cleanNumero} ya está registrado en otro cliente de tu directorio.`,
-      });
+
+    const updates = {};
+    if (numero) {
+      const cleanNumero = sanitizePhone(numero);
+      if (!isValidPhone(cleanNumero)) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Número inválido. Debe contener entre 7 y 15 dígitos numéricos.",
+          });
+      }
+      const duplicado = userClients.find(
+        (c) => c.numero === cleanNumero && c.id !== id,
+      );
+      if (duplicado) {
+        return res.status(409).json({
+          error: `El número ${cleanNumero} ya está registrado en otro cliente de tu directorio.`,
+        });
+      }
+      updates.numero = cleanNumero;
     }
-    allClients[idx].numero = cleanNumero;
-  }
 
-  if (nombre) {
-    const cleanNombre = sanitizeText(nombre, 100);
-    if (cleanNombre.length < 2) {
-      return res.status(400).json({ error: "El nombre debe tener al menos 2 caracteres." });
+    if (nombre) {
+      const cleanNombre = sanitizeText(nombre, 100);
+      if (cleanNombre.length < 2) {
+        return res
+          .status(400)
+          .json({ error: "El nombre debe tener al menos 2 caracteres." });
+      }
+      updates.nombre = cleanNombre;
     }
-    allClients[idx].nombre = cleanNombre;
-  }
 
-  if (nota !== undefined) {
-    allClients[idx].nota = sanitizeText(nota, 500);
-  }
+    if (nota !== undefined) {
+      updates.nota = sanitizeText(nota, 500);
+    }
 
-  saveClients(allClients);
-  const updatedUserClients = allClients.filter(c => (c.ownerEmail || "").toLowerCase() === userEmail);
-  io.to(userEmail).emit("clients_updated", updatedUserClients);
-  return res.json(allClients[idx]);
+    const updated = await dbService.updateClient(id, userEmail, updates);
+    const updatedUserClients = await dbService.getClientsForUser(userEmail);
+    io.to(userEmail).emit("clients_updated", updatedUserClients);
+    return res.json(updated || { ...existing, ...updates });
+  } catch (err) {
+    console.error("⚠️ Error editando cliente:", err.message);
+    return res.status(500).json({ error: "Error interno editando cliente." });
+  }
 });
 
 // DELETE: Eliminar un cliente por ID (Solo si pertenece a la cuenta)
-app.delete("/api/clients/:id", authenticateToken, (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  const id = sanitizeText(req.params.id, 64);
-  const allClients = loadClients();
-  const idx = allClients.findIndex((c) => c.id === id && (c.ownerEmail || "").toLowerCase() === userEmail);
-  if (idx === -1) {
-    return res.status(404).json({ error: "Cliente no encontrado en tu directorio." });
+app.delete("/api/clients/:id", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    const id = sanitizeText(req.params.id, 64);
+    const userClients = await dbService.getClientsForUser(userEmail);
+    const target = userClients.find((c) => c.id === id);
+    if (!target) {
+      return res
+        .status(404)
+        .json({ error: "Cliente no encontrado en tu directorio." });
+    }
+
+    const eliminado = await dbService.deleteClient(id, userEmail);
+    const updatedUserClients = await dbService.getClientsForUser(userEmail);
+    io.to(userEmail).emit("clients_updated", updatedUserClients);
+    return res.json({
+      message: `Cliente "${target.nombre}" eliminado.`,
+      cliente: eliminado || target,
+    });
+  } catch (err) {
+    console.error("⚠️ Error eliminando cliente:", err.message);
+    return res.status(500).json({ error: "Error interno eliminando cliente." });
   }
-  const eliminado = allClients.splice(idx, 1)[0];
-  saveClients(allClients);
-  const updatedUserClients = allClients.filter(c => (c.ownerEmail || "").toLowerCase() === userEmail);
-  io.to(userEmail).emit("clients_updated", updatedUserClients);
-  return res.json({
-    message: `Cliente "${eliminado.nombre}" eliminado.`,
-    cliente: eliminado,
-  });
 });
 
 // DELETE: Eliminar múltiples clientes (por IDs, solo de la cuenta)
-app.delete("/api/clients", authenticateToken, (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  const { ids } = req.body;
-  if (!ids || !Array.isArray(ids) || ids.length === 0) {
-    return res.status(400).json({ error: "Se requiere un arreglo de IDs." });
+app.delete("/api/clients", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "Se requiere un arreglo de IDs." });
+    }
+    if (ids.length > 500) {
+      return res
+        .status(400)
+        .json({ error: "Máximo 500 identificadores por operación." });
+    }
+    const sanitizedIds = ids.map((id) => sanitizeText(id, 64));
+    const eliminados = await dbService.deleteClientsBulk(
+      sanitizedIds,
+      userEmail,
+    );
+    const updatedUserClients = await dbService.getClientsForUser(userEmail);
+    io.to(userEmail).emit("clients_updated", updatedUserClients);
+    return res.json({
+      message: `${eliminados ? eliminados.length : sanitizedIds.length} cliente(s) eliminado(s).`,
+      eliminados: eliminados || [],
+    });
+  } catch (err) {
+    console.error("⚠️ Error eliminando clientes masivamente:", err.message);
+    return res
+      .status(500)
+      .json({ error: "Error interno eliminando clientes." });
   }
-  if (ids.length > 500) {
-    return res.status(400).json({ error: "Máximo 500 identificadores por operación." });
-  }
-  const sanitizedIds = ids.map(id => sanitizeText(id, 64));
-  let allClients = loadClients();
-  const eliminados = allClients.filter((c) => sanitizedIds.includes(c.id) && (c.ownerEmail || "").toLowerCase() === userEmail);
-  allClients = allClients.filter((c) => !(sanitizedIds.includes(c.id) && (c.ownerEmail || "").toLowerCase() === userEmail));
-  saveClients(allClients);
-  const updatedUserClients = allClients.filter(c => (c.ownerEmail || "").toLowerCase() === userEmail);
-  io.to(userEmail).emit("clients_updated", updatedUserClients);
-  return res.json({
-    message: `${eliminados.length} cliente(s) eliminado(s).`,
-    eliminados,
-  });
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -1746,6 +1863,7 @@ app.get("/api/test/health", authenticateToken, async (req, res) => {
       heapUsed: (memory.heapUsed / (1024 * 1024)).toFixed(1),
       heapTotal: (memory.heapTotal / (1024 * 1024)).toFixed(1),
     };
+    responseData.database = dbService.getDbStatus();
     responseData.nodeVersion = process.version;
   }
 
@@ -1754,10 +1872,13 @@ app.get("/api/test/health", authenticateToken, async (req, res) => {
 
 // Health check público y liviano para monitores externos (Render, UptimeRobot)
 app.get("/api/health", (req, res) => {
+  const dbStatus = dbService.getDbStatus();
   res.json({
     status: "OK",
     service: "WhatsApp Gateway API",
-    timestamp: new Date().toISOString()
+    database: dbStatus.mode,
+    isMongoConnected: dbStatus.isMongoConnected,
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -1967,9 +2088,21 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Gateway de WhatsApp (Producción Segura) activo en puerto ${PORT}`);
+server.listen(PORT, "0.0.0.0", async () => {
+  console.log(
+    `🚀 Gateway de WhatsApp (Producción Segura) activo en puerto ${PORT}`,
+  );
+  try {
+    await dbService.connectToMongo();
+  } catch (dbErr) {
+    console.warn(
+      "⚠️ [INICIO] Aviso al inicializar conexión con base de datos:",
+      dbErr.message,
+    );
+  }
   initAutoBackup();
   initSeedData();
-  console.log("✅ Servidor listo y en escucha de conexiones HTTP y WebSockets.");
+  console.log(
+    "✅ Servidor listo y en escucha de conexiones HTTP y WebSockets.",
+  );
 });

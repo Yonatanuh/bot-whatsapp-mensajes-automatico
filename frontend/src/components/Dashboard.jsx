@@ -9,7 +9,7 @@ import {
   Copy, Check, Video, Phone, MoreVertical, Paperclip, Smile,
   Mic, Wifi, Battery, Sun, Moon, FlaskConical, Zap, RefreshCw,
   Server, Cpu, CheckCircle2, AlertCircle, UserPlus, UserMinus,
-  Search, Plus, Pencil, Save, Download, RotateCcw, AlertTriangle
+  Search, Plus, Pencil, Save, Download, RotateCcw, AlertTriangle, Database
 } from 'lucide-react';
 import './Dashboard.css';
 
@@ -1669,7 +1669,7 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   <div className="p-3 rounded-xl border" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
                     <span className="text-[10px] uppercase font-bold block" style={{ color: "var(--wa-muted)" }}>Latencia API</span>
                     <span className="text-lg font-bold block mt-1" style={{ color: "var(--wa-button)" }}>
@@ -1701,6 +1701,18 @@ export default function Dashboard() {
                     </span>
                     <span className="text-[10px]" style={{ color: "var(--wa-muted)" }}>
                       {healthData?.clientInfo?.pushname ? healthData.clientInfo.pushname : 'whatsapp-web.js'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl border col-span-2 md:col-span-1" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
+                    <span className="text-[10px] uppercase font-bold flex items-center gap-1" style={{ color: "var(--wa-muted)" }}>
+                      <Database size={11} /> Base de Datos
+                    </span>
+                    <span className="text-sm font-bold block mt-1 truncate" style={{ color: healthData?.database?.isMongoConnected ? 'var(--wa-green)' : 'var(--wa-button)' }}>
+                      {healthData?.database?.isMongoConnected ? 'MongoDB Atlas' : 'Local Seguro'}
+                    </span>
+                    <span className="text-[10px] truncate block" style={{ color: "var(--wa-muted)" }}>
+                      {healthData?.database?.isMongoConnected ? (healthData?.database?.databaseName || 'Atlas Conectado') : 'Cifrado AES-256'}
                     </span>
                   </div>
                 </div>
