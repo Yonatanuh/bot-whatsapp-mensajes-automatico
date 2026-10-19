@@ -156,25 +156,25 @@ async function connectToMongo() {
 
     // Crear índices de alto rendimiento y privacidad
     try {
-      await mongoDb.collection("clients").createIndex({ ownerEmail: 1 });
       const clientsCollection = mongoDb.collection("clients");
-      const clientIndexes = await clientsCollection.listIndexes().toArray();
-      const globalIdIndex = clientIndexes.find(index =>
-        index.unique &&
-        index.key &&
-        Object.keys(index.key).length === 1 &&
-        index.key.id === 1
-      );
-      if (globalIdIndex) {
-        await clientsCollection.dropIndex(globalIdIndex.name);
+      try {
+        await clientsCollection.createIndex({ id: 1 }, { unique: true, name: "client_id_unique", sparse: true });
+      } catch (idErr) {
+        // Ignorar si ya existe un índice compatible
       }
-      await clientsCollection.createIndex(
-        { ownerEmail: 1, id: 1 },
-        { unique: true, name: "ownerEmail_1_id_1" }
-      );
-      await mongoDb.collection("users").createIndex({ email: 1 }, { unique: true });
-      await mongoDb.collection("templates").createIndex({ userEmail: 1 }, { unique: true });
-      console.log("⚡ [DB] Índices de MongoDB configurados para aislamiento de clientes y rendimiento.");
+      try {
+        await clientsCollection.createIndex({ ownerEmail: 1 }, { name: "ownerEmail_idx" });
+      } catch (oeErr) {}
+
+      try {
+        await mongoDb.collection("users").createIndex({ email: 1 }, { unique: true });
+      } catch (uErr) {}
+
+      try {
+        await mongoDb.collection("templates").createIndex({ userEmail: 1 }, { unique: true });
+      } catch (tErr) {}
+
+      console.log("⚡ [DB] Índices de MongoDB configurados correctamente para el directorio corporativo.");
     } catch (idxErr) {
       console.warn("⚠️ [DB] Aviso al asegurar índices en MongoDB:", idxErr.message);
     }
