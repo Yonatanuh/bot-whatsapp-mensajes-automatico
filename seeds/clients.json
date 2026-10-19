@@ -1,0 +1,26 @@
+[
+  {
+    "id": "1791573765845",
+    "nombre": "María Rodríguez",
+    "numero": "18095550101",
+    "nota": "Cliente frecuente - Recordatorio de cuota",
+    "ownerEmail": "gonzalezyonild@gmail.com",
+    "agregadoEl": "2026-10-09T19:22:45.845Z"
+  },
+  {
+    "id": "1791575961084",
+    "nombre": "Carlos Sánchez",
+    "numero": "18095550102",
+    "nota": "Pago pendiente",
+    "ownerEmail": "gonzalezyonild@gmail.com",
+    "agregadoEl": "2026-10-09T19:59:21.084Z"
+  },
+  {
+    "id": "1791638907058",
+    "nombre": "Elena Gómez",
+    "numero": "18095550103",
+    "nota": "Plan mensual",
+    "ownerEmail": "gonzalezyonild@gmail.com",
+    "agregadoEl": "2026-10-10T13:28:27.058Z"
+  }
+]

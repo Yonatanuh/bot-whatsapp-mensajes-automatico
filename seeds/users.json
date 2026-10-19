@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Jonathan",
+    "email": "gonzalezyonild@gmail.com",
+    "password": "$2b$10$Mu2/mF8YuD.SH1oB2WHKvOo8PGrE6Te1iQZBOageJ9iI3zK83Uqq.",
+    "role": "ADMIN",
+    "verifiedAt": "2026-10-10T12:00:00.000Z"
+  },
+  {
+    "name": "Jonathan",
+    "email": "yonatanfranco339@gmail.com",
+    "password": "$2b$10$FltcCRmU7mKHqkSdp3wkPe0z4eVChapZ3uqqzxYGHfCVquZJPaJlO",
+    "role": "ADMIN",
+    "verifiedAt": "2026-10-12T19:16:17.611Z"
+  }
+]

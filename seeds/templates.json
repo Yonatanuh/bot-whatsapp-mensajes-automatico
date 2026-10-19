@@ -1,0 +1,44 @@
+{
+  "gonzalezyonild@gmail.com": {
+    "plantillas": [
+      {
+        "id": "rec",
+        "nombre": "Recordatorio de Pago",
+        "texto": "Estimado/a cliente, le recordamos cordialmente que su cuenta presenta saldo pendiente. Por favor responda con su comprobante para actualizar su estado a la brevedad."
+      },
+      {
+        "id": "abo",
+        "nombre": "Confirmación de Abono",
+        "texto": "Estimado cliente, hemos registrado con éxito su abono a la cuenta. Su saldo ha sido actualizado en nuestro sistema. ¡Muchas gracias por su puntualidad!"
+      },
+      {
+        "id": "ven",
+        "nombre": "Aviso de Vencimiento",
+        "texto": "Aviso importante de cobranza: Su ciclo de facturación vence en las próximas 24 horas. Evite recargos regularizando su balance a la brevedad."
+      }
+    ],
+    "currentMessage": "Estimado/a cliente, le recordamos cordialmente que su cuenta presenta saldo pendiente. Por favor responda con su comprobante para actualizar su estado a la brevedad.",
+    "delay": 16
+  },
+  "yonatanfranco339@gmail.com": {
+    "plantillas": [
+      {
+        "id": "rec",
+        "nombre": "Recordatorio de Pago",
+        "texto": "Estimado/a cliente, le recordamos cordialmente que su cuenta presenta saldo pendiente. Por favor responda con su comprobante para actualizar su estado a la brevedad."
+      },
+      {
+        "id": "abo",
+        "nombre": "Confirmación de Abono",
+        "texto": "Estimado cliente, hemos registrado con éxito su abono a la cuenta. Su saldo ha sido actualizado en nuestro sistema. ¡Muchas gracias por su puntualidad!"
+      },
+      {
+        "id": "ven",
+        "nombre": "Aviso de Vencimiento",
+        "texto": "Aviso importante de cobranza: Su ciclo de facturación vence en las próximas 24 horas. Evite recargos regularizando su balance a la brevedad."
+      }
+    ],
+    "currentMessage": "Estimado/a cliente, le recordamos cordialmente que su cuenta presenta saldo pendiente. Por favor responda con su comprobante para actualizar su estado a la brevedad.",
+    "delay": 16
+  }
+}

@@ -24,11 +24,13 @@ frontend/.env*
 **/.wwebjs_cache/
 
 # ── BASES DE DATOS PRIVADAS Y RESPALDOS (CONFIDENCIAL) ──
-users.json
-clients.json
-templates.json
+/users.json
+/clients.json
+/templates.json
 backups/
 **/backups/
+!seeds/
+!seeds/**
 
 # ── DEPENDENCIAS ──
 node_modules/
