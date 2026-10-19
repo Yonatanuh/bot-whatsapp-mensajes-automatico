@@ -1,15 +1,15 @@
 :root {
   --wa-green: #25d366;
-  --wa-button: #00a884;
-  --wa-button-hover: #008f6f;
+  --wa-button: #07866d;
+  --wa-button-hover: #066e5a;
   --wa-dark: #075e54;
-  --wa-mid: #128c7e;
-  --wa-bg: #ece5dd;
+  --wa-mid: #0f9b80;
+  --wa-bg: #f2f7f6;
   --wa-card: #ffffff;
-  --wa-text: #111b21;
-  --wa-muted: #667781;
-  --wa-border: #e2e8f0;
-  --wa-input-bg: #f0f2f5;
+  --wa-text: #132722;
+  --wa-muted: #687b76;
+  --wa-border: #e1ebe7;
+  --wa-input-bg: #f6faf8;
   --wa-bubble-sent: #dcf8c6;
   --wa-bubble-sent-text: #111b21;
   --wa-bubble-recv: #ffffff;
@@ -46,7 +46,9 @@
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
-  background-color: var(--wa-bg);
+  background:
+    radial-gradient(ellipse at 84% 6%, rgba(15, 155, 128, 0.09), transparent 30%),
+    var(--wa-bg);
   color: var(--wa-text);
   font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
   transition: background-color 0.3s ease, color 0.3s ease;
@@ -60,13 +62,15 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 120px;
-  background: linear-gradient(135deg, var(--wa-dark), var(--wa-mid));
+  height: 148px;
+  background:
+    radial-gradient(ellipse at 76% 0%, rgba(255, 255, 255, 0.18), transparent 42%),
+    linear-gradient(120deg, #075e54 0%, #07866d 56%, #0f9b80 100%);
   z-index: 0;
 }
 
 .dashboard-page.dark .dashboard-top-banner {
-  background: #202c33;
+  background: linear-gradient(120deg, #111b21, #162b2d);
   border-bottom: 1px solid var(--wa-border);
 }
 
@@ -82,7 +86,7 @@
   left: 0;
   z-index: 40;
   transition: transform 0.25s ease, background-color 0.3s ease;
-  box-shadow: 2px 0 16px rgba(0, 0, 0, 0.05);
+  box-shadow: 8px 0 28px rgba(15, 45, 40, 0.06);
 }
 
 .wa-sidebar-header {
@@ -128,7 +132,7 @@
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
   text-align: left;
   width: 100%;
 }
@@ -139,7 +143,7 @@
 }
 
 .wa-nav-item.active {
-  background: rgba(0, 168, 132, 0.1);
+  background: linear-gradient(100deg, rgba(7, 134, 109, 0.13), rgba(7, 134, 109, 0.04));
   color: var(--wa-button);
   border-left: 4px solid var(--wa-button);
 }
@@ -169,11 +173,13 @@
   align-items: center;
   justify-content: space-between;
   background: var(--wa-card);
+  background: color-mix(in srgb, var(--wa-card) 92%, transparent);
   border-bottom: 1px solid var(--wa-border);
   position: sticky;
   top: 0;
   z-index: 30;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 8px 24px rgba(15, 45, 40, 0.045);
+  backdrop-filter: blur(16px);
 }
 
 /* Botón Interruptor de Modo Oscuro */
@@ -194,27 +200,30 @@
 
 .theme-toggle-mini:hover {
   border-color: var(--wa-button);
+  transform: translateY(-1px);
 }
 
 /* Tarjetas Principales del Dashboard */
 .wa-card {
   background: var(--wa-card);
   border: 1px solid var(--wa-border);
-  border-radius: 16px;
+  border-radius: 20px;
   padding: 24px 28px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-  transition: background-color 0.3s ease, border-color 0.3s ease;
+  box-shadow: 0 10px 30px rgba(15, 45, 40, 0.055);
+  transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
 }
 
 /* Indicadores KPI */
 .wa-kpi-chip {
   background: var(--wa-card);
+  background: linear-gradient(145deg, var(--wa-card), color-mix(in srgb, var(--wa-card) 82%, var(--wa-bg)));
   border: 1px solid var(--wa-border);
-  border-radius: 12px;
-  padding: 14px 16px;
+  border-radius: 16px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 6px 20px rgba(15, 45, 40, 0.045);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .wa-kpi-label {
@@ -251,15 +260,15 @@
 
 .wa-textarea:focus {
   border-color: var(--wa-button);
-  box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.15);
+  box-shadow: 0 0 0 4px rgba(7, 134, 109, 0.14);
 }
 
 /* Botones principales estilo WhatsApp */
 .btn-wa-primary {
-  background: var(--wa-button);
+  background: linear-gradient(135deg, var(--wa-button), #0b9c7d);
   color: #fff;
   border: none;
-  border-radius: 24px;
+  border-radius: 12px;
   padding: 12px 22px;
   font-size: 0.92rem;
   font-weight: 600;
@@ -268,14 +277,15 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  box-shadow: 0 3px 12px rgba(0, 168, 132, 0.28);
+  box-shadow: 0 6px 16px rgba(7, 134, 109, 0.2);
   transition: background-color 0.2s, transform 0.1s, box-shadow 0.2s;
   width: 100%;
 }
 
 .btn-wa-primary:hover:not(:disabled) {
-  background: var(--wa-button-hover);
-  box-shadow: 0 4px 16px rgba(0, 168, 132, 0.4);
+  background: linear-gradient(135deg, var(--wa-button-hover), #07866d);
+  box-shadow: 0 8px 22px rgba(7, 134, 109, 0.28);
+  transform: translateY(-1px);
 }
 
 .btn-wa-primary:active:not(:disabled) {
@@ -306,6 +316,27 @@
 .btn-wa-secondary:hover {
   border-color: var(--wa-button);
   color: var(--wa-button);
+  transform: translateY(-1px);
+}
+
+.dashboard-page button:focus-visible,
+.dashboard-page input:focus-visible,
+.dashboard-page textarea:focus-visible {
+  outline: 3px solid rgba(7, 134, 109, 0.28);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .wa-card:hover {
+    border-color: var(--wa-border);
+    border-color: color-mix(in srgb, var(--wa-button) 22%, var(--wa-border));
+    box-shadow: 0 14px 34px rgba(15, 45, 40, 0.085);
+  }
+
+  .wa-kpi-chip:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(15, 45, 40, 0.08);
+  }
 }
 
 /* Terminal de Logs WhatsApp */
@@ -422,6 +453,11 @@
     font-size: 16px;
     padding: 14px;
   }
+
+  .wa-card {
+    padding: 18px;
+    border-radius: 16px;
+  }
 }
 
 /* ── ANIMACIONES Y NOTIFICACIONES TOAST FLOTANTES ── */
@@ -489,5 +525,3 @@
   background: #128c7e;
   color: #ffffff;
 }
-
-

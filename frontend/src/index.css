@@ -10,7 +10,7 @@ html {
 body {
   margin: 0;
   padding: 0;
-  background-color: #07090e;
+  background-color: #f2f7f6;
   color: #f8fafc;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -38,4 +38,177 @@ body {
   background-color: #0b141a;
   background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
   background-size: 16px 16px;
+}
+
+.app-error-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #10231f;
+  background:
+    radial-gradient(ellipse at 15% 10%, rgba(37, 211, 102, 0.15), transparent 38%),
+    radial-gradient(ellipse at 90% 90%, rgba(14, 116, 104, 0.12), transparent 36%),
+    #f2f7f6;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.app-error-card {
+  width: min(100%, 520px);
+  padding: clamp(24px, 5vw, 40px);
+  border: 1px solid rgba(15, 118, 110, 0.13);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 24px 70px rgba(15, 45, 40, 0.12);
+  text-align: center;
+  backdrop-filter: blur(16px);
+}
+
+.app-error-icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 18px;
+  border-radius: 16px;
+  color: #b45309;
+  background: #fff7ed;
+}
+
+.app-error-eyebrow {
+  margin: 0 0 8px;
+  color: #0f8a71;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.app-error-card h1 {
+  margin: 0;
+  color: #10231f;
+  font-size: clamp(1.4rem, 5vw, 1.8rem);
+  letter-spacing: -0.04em;
+}
+
+.app-error-copy {
+  margin: 12px 0 20px;
+  color: #60726e;
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.app-error-detail {
+  max-height: 120px;
+  overflow: auto;
+  margin: 0 0 22px;
+  padding: 12px 14px;
+  border: 1px solid #e6eeeb;
+  border-radius: 12px;
+  color: #52635e;
+  background: #f7faf9;
+  font: 0.78rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-error-components {
+  margin: -10px 0 20px;
+  color: #52635e;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.app-error-components summary {
+  width: fit-content;
+  margin-bottom: 8px;
+  color: #07866d;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.app-error-components pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  color: #52635e;
+  background: #f7faf9;
+  font: 0.72rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-error-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.app-error-primary,
+.app-error-secondary {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.app-error-primary {
+  color: #fff;
+  background: #07866d;
+  box-shadow: 0 7px 18px rgba(7, 134, 109, 0.2);
+}
+
+.app-error-secondary {
+  border-color: #dce8e4;
+  color: #344b45;
+  background: #fff;
+}
+
+.app-error-primary:hover,
+.app-error-secondary:hover {
+  transform: translateY(-1px);
+}
+
+.app-error-link {
+  display: inline-block;
+  margin-top: 20px;
+  color: #07866d;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.app-error-link:hover {
+  text-decoration: underline;
+}
+
+.app-error-screen button:focus-visible,
+.app-error-screen a:focus-visible {
+  outline: 3px solid rgba(7, 134, 109, 0.35);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

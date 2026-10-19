@@ -1,70 +1,69 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { AlertTriangle, RefreshCw, RotateCcw } from 'lucide-react';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 
 class AppErrorBoundary extends React.Component {
-  state = { hasError: false, retryKey: 0 };
+  state = { hasError: false, retryKey: 0, errorMessage: '', componentStack: '' };
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      errorMessage: error instanceof Error ? error.message : 'Error de interfaz no identificado.'
+    };
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('Dashboard render error:', error, errorInfo);
+    console.error('Application render error:', error, errorInfo);
+    this.setState({ componentStack: errorInfo.componentStack || '' });
   }
 
   handleRetry = () => {
     this.setState(state => ({
       hasError: false,
-      retryKey: state.retryKey + 1
+      retryKey: state.retryKey + 1,
+      errorMessage: '',
+      componentStack: ''
     }));
+  };
+
+  handleReload = () => {
+    window.location.reload();
   };
 
   render() {
     if (this.state.hasError) {
       return (
-        <main style={{
-          minHeight: '100vh',
-          display: 'grid',
-          placeItems: 'center',
-          padding: '24px',
-          background: '#f1f5f9',
-          color: '#0f172a',
-          fontFamily: 'system-ui, sans-serif'
-        }}>
-          <section style={{
-            width: 'min(100%, 480px)',
-            padding: '32px',
-            borderRadius: '16px',
-            background: '#fff',
-            boxShadow: '0 12px 40px rgba(15, 23, 42, 0.12)',
-            textAlign: 'center'
-          }}>
-            <h1 style={{ margin: '0 0 12px', fontSize: '22px' }}>El panel tuvo un problema</h1>
-            <p style={{ margin: '0 0 24px', lineHeight: 1.6, color: '#475569' }}>
-              Tus datos guardados no se han eliminado. Puedes volver a cargar el panel o regresar al inicio de sesión.
+        <main className="app-error-screen" role="alert">
+          <section className="app-error-card">
+            <span className="app-error-icon" aria-hidden="true">
+              <AlertTriangle size={24} />
+            </span>
+            <p className="app-error-eyebrow">Recuperación del sistema</p>
+            <h1>Esta vista no se pudo mostrar</h1>
+            <p className="app-error-copy">
+              La aplicación encontró un error al dibujar esta pantalla. El detalle técnico está disponible
+              aquí para ayudar a identificar qué ocurrió.
             </p>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={this.handleRetry}
-                style={{
-                  padding: '10px 16px',
-                  border: 0,
-                  borderRadius: '8px',
-                  background: '#008f6f',
-                  color: '#fff',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                Reintentar
+            <pre className="app-error-detail">{this.state.errorMessage}</pre>
+            {this.state.componentStack && (
+              <details className="app-error-components">
+                <summary>Mostrar ubicación del error</summary>
+                <pre>{this.state.componentStack}</pre>
+              </details>
+            )}
+            <div className="app-error-actions">
+              <button type="button" className="app-error-primary" onClick={this.handleRetry}>
+                <RotateCcw size={16} />
+                Reintentar vista
               </button>
-              <a href="/login" style={{ alignSelf: 'center', color: '#008f6f', fontWeight: 600 }}>
-                Volver al inicio de sesión
-              </a>
+              <button type="button" className="app-error-secondary" onClick={this.handleReload}>
+                <RefreshCw size={16} />
+                Recargar sitio
+              </button>
             </div>
+            <Link className="app-error-link" to="/login">Volver al inicio de sesión</Link>
           </section>
         </main>
       );

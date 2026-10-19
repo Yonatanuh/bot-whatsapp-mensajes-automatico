@@ -322,7 +322,9 @@ export default function Dashboard() {
   };
 
   const handleDisconnectWhatsApp = async () => {
-    if (!window.confirm("¿Deseas desvincular tu cuenta de WhatsApp para enlazar otro número telefónico?")) return;
+    if (status === 'CONNECTED') {
+      if (!window.confirm("¿Deseas desvincular tu cuenta de WhatsApp para enlazar otro número telefónico?")) return;
+    }
     try {
       const token = localStorage.getItem('token');
       setStatus('INITIALIZING');
@@ -330,10 +332,10 @@ export default function Dashboard() {
       await axios.post(`${API_BASE}/api/whatsapp/disconnect`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      showToast('info', 'WhatsApp desvinculado. Generando nuevo código QR personal...');
-      setTimeout(fetchStatus, 1500);
+      showToast('info', 'Reiniciando pasarela de WhatsApp y generando nuevo código QR...');
+      setTimeout(fetchStatus, 2000);
     } catch (err) {
-      showToast('error', err.response?.data?.error || 'Error al desvincular WhatsApp.');
+      showToast('error', err.response?.data?.error || 'Error al reiniciar WhatsApp.');
     }
   };
 
@@ -1711,11 +1713,17 @@ export default function Dashboard() {
                     onClick={handleSend}
                     disabled={status !== 'CONNECTED' || loading}
                     className="btn-wa-primary"
+                    title={status !== 'CONNECTED' ? 'Escanea el código QR superior para vincular WhatsApp antes de enviar' : 'Iniciar transmisión masiva'}
                   >
                     {loading ? (
                       <>
                         <Loader2 size={18} className="animate-spin" />
                         <span>Transmitiendo Campaña...</span>
+                      </>
+                    ) : status !== 'CONNECTED' ? (
+                      <>
+                        <Smartphone size={16} />
+                        <span>Vincular WhatsApp para Enviar</span>
                       </>
                     ) : (
                       <>
@@ -1724,6 +1732,11 @@ export default function Dashboard() {
                       </>
                     )}
                   </button>
+                  {status !== 'CONNECTED' && (
+                    <p className="text-[11px] text-center font-medium" style={{ color: "var(--wa-muted)" }}>
+                      Escanea el código QR arriba para activar el envío.
+                    </p>
+                  )}
                 </div>
 
               </div>

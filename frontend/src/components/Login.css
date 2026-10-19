@@ -2,16 +2,16 @@
 
 :root {
   --wa-green: #25d366;
-  --wa-button: #00a884;
-  --wa-button-hover: #008f6f;
+  --wa-button: #07866d;
+  --wa-button-hover: #066e5a;
   --wa-dark: #075e54;
-  --wa-mid: #128c7e;
-  --wa-bg: #ece5dd;
+  --wa-mid: #0f9b80;
+  --wa-bg: #f2f7f6;
   --wa-card: #ffffff;
-  --wa-text: #111b21;
-  --wa-muted: #667781;
-  --wa-border: #d1d7db;
-  --wa-input-bg: #ffffff;
+  --wa-text: #132722;
+  --wa-muted: #687b76;
+  --wa-border: #e1ebe7;
+  --wa-input-bg: #f8fbfa;
   --wa-error: #ea0038;
 }
 
@@ -42,7 +42,9 @@
   align-items: center;
   position: relative;
   padding: 24px 16px;
-  background: var(--wa-bg);
+  background:
+    radial-gradient(ellipse at 12% 92%, rgba(15, 155, 128, 0.1), transparent 32%),
+    var(--wa-bg);
   color: var(--wa-text);
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   transition: background-color 0.3s ease;
@@ -55,8 +57,10 @@
   top: 0;
   left: 0;
   width: 100%;
-  height: 220px;
-  background: linear-gradient(135deg, var(--wa-dark), var(--wa-mid));
+  height: 250px;
+  background:
+    radial-gradient(ellipse at 80% 0%, rgba(255, 255, 255, 0.2), transparent 40%),
+    linear-gradient(120deg, #075e54 0%, #07866d 56%, #0f9b80 100%);
   z-index: 0;
 }
 
@@ -92,11 +96,12 @@
   position: relative;
   z-index: 2;
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
   background: var(--wa-card);
-  border-radius: 16px;
-  padding: 44px 32px 32px;
-  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.16);
+  border: 1px solid rgba(15, 118, 110, 0.12);
+  border-radius: 24px;
+  padding: 48px 36px 36px;
+  box-shadow: 0 24px 70px rgba(15, 45, 40, 0.15);
   animation: fadeUp 0.4s ease;
   transition: background-color 0.3s ease, box-shadow 0.3s ease;
   margin: auto;
@@ -183,7 +188,14 @@
 
 .field input:focus {
   border-color: var(--wa-button);
-  box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.2);
+  box-shadow: 0 0 0 4px rgba(7, 134, 109, 0.14);
+}
+
+.login-page button:focus-visible,
+.login-page a:focus-visible,
+.login-page input:focus-visible {
+  outline: 3px solid rgba(7, 134, 109, 0.28);
+  outline-offset: 3px;
 }
 
 .field input.invalid {
@@ -279,8 +291,8 @@
   width: 100%;
   padding: 13px;
   border: none;
-  border-radius: 24px;
-  background: var(--wa-button);
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--wa-button), #0b9c7d);
   color: #fff;
   font-size: 1.05rem;
   font-weight: 600;
@@ -289,13 +301,14 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  box-shadow: 0 4px 14px rgba(0, 168, 132, 0.3);
+  box-shadow: 0 6px 18px rgba(7, 134, 109, 0.2);
   transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--wa-button-hover);
-  box-shadow: 0 6px 18px rgba(0, 168, 132, 0.4);
+  background: linear-gradient(135deg, var(--wa-button-hover), #07866d);
+  box-shadow: 0 9px 24px rgba(7, 134, 109, 0.28);
+  transform: translateY(-1px);
 }
 
 .btn-primary:active:not(:disabled) {
@@ -372,8 +385,8 @@
     width: 100%;
     max-width: 100%;
     padding: 38px 20px 24px;
-    border-radius: 18px;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+    border-radius: 20px;
+    box-shadow: 0 16px 40px rgba(15, 45, 40, 0.14);
   }
   
   .login-logo {

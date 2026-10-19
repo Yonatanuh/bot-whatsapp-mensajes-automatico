@@ -772,6 +772,25 @@ io.use((socket, next) => {
 // ── SISTEMA MULTI-SESIÓN WHATSAPP (AISLADO POR CUENTA) ──
 const sessions = new Map();
 
+async function safelyDestroyClient(client) {
+  if (!client) return;
+  try {
+    await Promise.race([
+      client.destroy(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Destroy timeout")), 3000))
+    ]);
+  } catch (err) {
+    try {
+      if (client.pupBrowser) {
+        const proc = typeof client.pupBrowser.process === "function" ? client.pupBrowser.process() : null;
+        if (proc && !proc.killed) {
+          proc.kill("SIGKILL");
+        }
+      }
+    } catch {}
+  }
+}
+
 const PUPPETEER_BASE_ARGS = [
   "--no-sandbox",
   "--disable-setuid-sandbox",
@@ -779,8 +798,8 @@ const PUPPETEER_BASE_ARGS = [
   "--disable-accelerated-2d-canvas",
   "--no-first-run",
   "--disable-gpu",
-  "--single-process",
-  "--no-zygote"
+  "--disable-extensions",
+  "--disable-software-rasterizer"
 ];
 
 const DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -798,20 +817,21 @@ function getChromiumEnvironment() {
         return;
       }
 
-      // 2. En Linux sin acceso root (Render / Serverless), @sparticuz/chromium empaqueta todas las librerías C++ (libnss3, libatk, libgbm)
-      if (process.platform === "linux") {
-        try {
-          const sparticuz = require("@sparticuz/chromium").default || require("@sparticuz/chromium");
-          const spPath = await sparticuz.executablePath();
-          if (spPath && fs.existsSync(spPath)) {
-            resolvedChromiumExecutable = spPath;
-            console.log(`🧭 [CHROMIUM LINUX] Binario autónomo Sparticuz (con dependencias integradas) listo en: ${resolvedChromiumExecutable}`);
-            return;
-          }
-        } catch (e) {
-          console.warn("⚠️ [CHROMIUM] Sparticuz no disponible:", e.message);
+      // 2. Google Chrome oficial de Puppeteer (instalado durante 'npx puppeteer browsers install chrome')
+      try {
+        const puppeteer = require("puppeteer");
+        const pPath = puppeteer.executablePath();
+        if (pPath && fs.existsSync(pPath)) {
+          resolvedChromiumExecutable = pPath;
+          console.log(`🧭 [CHROMIUM] Usando Chromium oficial de Puppeteer: ${resolvedChromiumExecutable}`);
+          return;
         }
+      } catch (e) {
+        console.warn("ℹ️ [CHROMIUM] Puppeteer executablePath no disponible:", e.message);
+      }
 
+      // 3. Binarios Linux nativos instalados en el sistema
+      if (process.platform === "linux") {
         const commonPaths = [
           "/usr/bin/google-chrome-stable",
           "/usr/bin/google-chrome",
@@ -825,19 +845,19 @@ function getChromiumEnvironment() {
             return;
           }
         }
-      }
 
-      // 3. En Windows / macOS o como fallback: Google Chrome de Puppeteer
-      try {
-        const puppeteer = require("puppeteer");
-        const pPath = puppeteer.executablePath();
-        if (pPath && fs.existsSync(pPath)) {
-          resolvedChromiumExecutable = pPath;
-          console.log(`🧭 [CHROMIUM] Usando Chromium de Puppeteer: ${resolvedChromiumExecutable}`);
-          return;
+        // 4. Fallback Sparticuz si ningún otro ejecutable está disponible
+        try {
+          const sparticuz = require("@sparticuz/chromium").default || require("@sparticuz/chromium");
+          const spPath = await sparticuz.executablePath();
+          if (spPath && fs.existsSync(spPath)) {
+            resolvedChromiumExecutable = spPath;
+            console.log(`🧭 [CHROMIUM LINUX] Binario autónomo Sparticuz listo en: ${resolvedChromiumExecutable}`);
+            return;
+          }
+        } catch (e) {
+          console.warn("⚠️ [CHROMIUM] Sparticuz no disponible:", e.message);
         }
-      } catch (e) {
-        console.warn("ℹ️ [CHROMIUM] Puppeteer executablePath no disponible:", e.message);
       }
     })();
   }
@@ -853,27 +873,30 @@ async function getOrCreateUserSession(userEmail) {
   const cleanEmail = (userEmail || "").toLowerCase().trim();
   if (!cleanEmail) return null;
 
+  const clientId = getSessionClientId(cleanEmail);
+  const authDataPath = process.platform === "linux"
+    ? path.join("/tmp", ".wwebjs_auth")
+    : path.join(DATA_DIR, ".wwebjs_auth");
+  const sessionDir = path.join(authDataPath, `session-${clientId}`);
+
   if (sessions.has(cleanEmail)) {
     const existing = sessions.get(cleanEmail);
     if (existing) {
       if (existing.status === "CONNECTED" || existing.status === "QR_READY" || existing.status === "AUTHENTICATED") {
         return existing;
       }
-      if (existing.status === "INITIALIZING" && Date.now() - (existing.createdAt || 0) < 90000) {
+      if (existing.status === "INITIALIZING" && Date.now() - (existing.createdAt || 0) < 45000) {
         return existing;
       }
-      // Si la sesión anterior estaba estancada en INITIALIZING (>90s) o desconectada, destruir y recrear limpiamente
       console.warn(`⏳ [WHATSAPP] Sesión previa de ${cleanEmail} estancada en ${existing.status}. Reconstruyendo limpiamente...`);
-      try {
-        if (existing.client) {
-          existing.client.destroy().catch(() => {});
-        }
-      } catch {}
+      await safelyDestroyClient(existing.client);
       sessions.delete(cleanEmail);
+      if (fs.existsSync(sessionDir)) {
+        try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
+      }
     }
   }
 
-  const clientId = getSessionClientId(cleanEmail);
   const sessionData = {
     client: null,
     status: "INITIALIZING",
@@ -887,12 +910,7 @@ async function getOrCreateUserSession(userEmail) {
   // Asegurar que el entorno de Chromium en la nube esté completamente resuelto
   await getChromiumEnvironment();
 
-  const authDataPath = process.platform === "linux"
-    ? path.join("/tmp", ".wwebjs_auth")
-    : path.join(DATA_DIR, ".wwebjs_auth");
-
   // Limpiar posibles bloqueos huérfanos de Chromium que impiden el arranque
-  const sessionDir = path.join(authDataPath, `session-${clientId}`);
   if (fs.existsSync(sessionDir)) {
     const staleLocks = ["SingletonLock", "SingletonCookie", "SingletonSocket"];
     for (const lock of staleLocks) {
@@ -920,7 +938,11 @@ async function getOrCreateUserSession(userEmail) {
 
   const client = new Client({
     authStrategy: new LocalAuth({ clientId, dataPath: authDataPath }),
-    authTimeoutMs: 60000,
+    authTimeoutMs: 120000,
+    webVersionCache: {
+      type: "remote",
+      remotePath: "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html"
+    },
     bypassCSP: true,
     userAgent: DESKTOP_USER_AGENT,
     puppeteer: puppeteerConfig
@@ -972,9 +994,8 @@ async function getOrCreateUserSession(userEmail) {
     io.to(cleanEmail).emit("status", "DISCONNECTED");
     io.to(cleanEmail).emit("qr", "");
     io.to(cleanEmail).emit("log", "⚠️ [WHATSAPP] Sesión anterior expirada o inválida. Limpiando para generar nuevo QR...");
-    try { await client.destroy(); } catch {}
+    await safelyDestroyClient(client);
     sessions.delete(cleanEmail);
-    const sessionDir = path.join(authDataPath, `session-${clientId}`);
     if (fs.existsSync(sessionDir)) {
       try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
     }
@@ -987,7 +1008,7 @@ async function getOrCreateUserSession(userEmail) {
     io.to(cleanEmail).emit("status", "DISCONNECTED");
     io.to(cleanEmail).emit("qr", "");
     console.log(`⚠️ [WHATSAPP] Sesión desconectada para ${cleanEmail}: ${reason}`);
-    try { await client.destroy(); } catch {}
+    await safelyDestroyClient(client);
     sessions.delete(cleanEmail);
   });
 
@@ -998,8 +1019,13 @@ async function getOrCreateUserSession(userEmail) {
     sessionData.qr = "";
     io.to(cleanEmail).emit("status", "DISCONNECTED");
     io.to(cleanEmail).emit("log", `⚠️ Error inicializando pasarela WhatsApp: ${errorMsg}`);
-    try { await client.destroy(); } catch {}
+    await safelyDestroyClient(client);
     sessions.delete(cleanEmail);
+
+    // Si falló por timeout de autenticación o bloqueo, limpiar directorio huérfano para posibilitar nuevo QR
+    if (fs.existsSync(sessionDir)) {
+      try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
+    }
   });
 
   return sessionData;
@@ -1223,7 +1249,7 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
           `🔄 [SISTEMA] Sesión de WhatsApp interrumpida. Limpiando para reconexión...`,
         );
         if (session && session.client) {
-          try { session.client.destroy().catch(() => {}); } catch {}
+          safelyDestroyClient(session.client);
           sessions.delete(userEmail);
         }
       }
@@ -1251,13 +1277,13 @@ app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
       try {
         await Promise.race([
           session.client.logout(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Logout timeout")), 4000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Logout timeout")), 2500))
         ]);
       } catch (err) {
         console.warn(`⚠️ [WHATSAPP] Logout no completado limpiamente para ${userEmail}:`, err.message);
       }
     }
-    try { await session.client.destroy(); } catch {}
+    await safelyDestroyClient(session.client);
     sessions.delete(userEmail);
   }
   const clientId = getSessionClientId(userEmail);
@@ -1273,7 +1299,7 @@ app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
   setTimeout(async () => {
     await getOrCreateUserSession(userEmail);
   }, 600);
-  res.json({ success: true, message: "WhatsApp desvinculado con éxito. Generando nuevo código QR..." });
+  res.json({ success: true, message: "WhatsApp reiniciado con éxito. Generando nuevo código QR..." });
 });
 
 // ─────────────────────────────────────────────────────────────
