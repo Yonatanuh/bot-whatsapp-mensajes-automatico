@@ -6,7 +6,7 @@ services:
     region: oregon
     plan: free
     buildCommand: npm install
-    startCommand: node --max-old-space-size=192 server.js
+    startCommand: node --max-old-space-size=256 server.js
 
     envVars:
       - key: NODE_ENV

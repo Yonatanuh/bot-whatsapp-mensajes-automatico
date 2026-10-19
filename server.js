@@ -817,21 +817,20 @@ function getChromiumEnvironment() {
         return;
       }
 
-      // 2. Google Chrome oficial de Puppeteer (instalado durante 'npx puppeteer browsers install chrome')
-      try {
-        const puppeteer = require("puppeteer");
-        const pPath = puppeteer.executablePath();
-        if (pPath && fs.existsSync(pPath)) {
-          resolvedChromiumExecutable = pPath;
-          console.log(`🧭 [CHROMIUM] Usando Chromium oficial de Puppeteer: ${resolvedChromiumExecutable}`);
-          return;
-        }
-      } catch (e) {
-        console.warn("ℹ️ [CHROMIUM] Puppeteer executablePath no disponible:", e.message);
-      }
-
-      // 3. Binarios Linux nativos instalados en el sistema
+      // 2. En Linux sin acceso root (Render / Serverless), @sparticuz/chromium empaqueta todas las librerías C++ (libnss3, libatk, libgbm)
       if (process.platform === "linux") {
+        try {
+          const sparticuz = require("@sparticuz/chromium").default || require("@sparticuz/chromium");
+          const spPath = await sparticuz.executablePath();
+          if (spPath && fs.existsSync(spPath)) {
+            resolvedChromiumExecutable = spPath;
+            console.log(`🧭 [CHROMIUM LINUX] Binario autónomo Sparticuz (con dependencias integradas) listo en: ${resolvedChromiumExecutable}`);
+            return;
+          }
+        } catch (e) {
+          console.warn("⚠️ [CHROMIUM] Sparticuz no disponible:", e.message);
+        }
+
         const commonPaths = [
           "/usr/bin/google-chrome-stable",
           "/usr/bin/google-chrome",
@@ -845,19 +844,19 @@ function getChromiumEnvironment() {
             return;
           }
         }
+      }
 
-        // 4. Fallback Sparticuz si ningún otro ejecutable está disponible
-        try {
-          const sparticuz = require("@sparticuz/chromium").default || require("@sparticuz/chromium");
-          const spPath = await sparticuz.executablePath();
-          if (spPath && fs.existsSync(spPath)) {
-            resolvedChromiumExecutable = spPath;
-            console.log(`🧭 [CHROMIUM LINUX] Binario autónomo Sparticuz listo en: ${resolvedChromiumExecutable}`);
-            return;
-          }
-        } catch (e) {
-          console.warn("⚠️ [CHROMIUM] Sparticuz no disponible:", e.message);
+      // 3. En Windows / macOS o como fallback: Google Chrome de Puppeteer
+      try {
+        const puppeteer = require("puppeteer");
+        const pPath = puppeteer.executablePath();
+        if (pPath && fs.existsSync(pPath)) {
+          resolvedChromiumExecutable = pPath;
+          console.log(`🧭 [CHROMIUM] Usando Chromium oficial de Puppeteer: ${resolvedChromiumExecutable}`);
+          return;
         }
+      } catch (e) {
+        console.warn("ℹ️ [CHROMIUM] Puppeteer executablePath no disponible:", e.message);
       }
     })();
   }
