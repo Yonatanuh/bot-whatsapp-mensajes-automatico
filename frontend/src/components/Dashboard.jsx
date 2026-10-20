@@ -1687,7 +1687,7 @@ export default function Dashboard() {
                         Autenticando sesión y sincronizando mensajes...
                       </p>
                     </div>
-                  ) : status === 'QR_READY' && qr ? (
+                  ) : qr && status !== 'CONNECTED' && status !== 'AUTHENTICATED' ? (
                     <div className="py-2">
                       <div className="inline-block p-2.5 rounded-2xl bg-white border-2 shadow-sm mb-2" style={{ borderColor: "var(--wa-button)" }}>
                         <img src={qr} alt="Código QR WhatsApp" className="w-40 h-40 mx-auto" />

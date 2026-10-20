@@ -862,32 +862,31 @@ function getChromiumEnvironment() {
 }
 getChromiumEnvironment();
 
+const CORPORATE_GATEWAY_KEY = "gateway_whatsapp_principal";
+
 function getSessionClientId(userEmail) {
-  return (userEmail || "admin").toLowerCase().replace(/[^a-z0-9]/g, "_");
+  return CORPORATE_GATEWAY_KEY;
 }
 
 async function getOrCreateUserSession(userEmail) {
-  const cleanEmail = (userEmail || "").toLowerCase().trim();
-  if (!cleanEmail) return null;
-
-  const clientId = getSessionClientId(cleanEmail);
+  const clientId = CORPORATE_GATEWAY_KEY;
   const authDataPath = process.platform === "linux"
     ? path.join("/tmp", ".wwebjs_auth")
     : path.join(DATA_DIR, ".wwebjs_auth");
   const sessionDir = path.join(authDataPath, `session-${clientId}`);
 
-  if (sessions.has(cleanEmail)) {
-    const existing = sessions.get(cleanEmail);
+  if (sessions.has(CORPORATE_GATEWAY_KEY)) {
+    const existing = sessions.get(CORPORATE_GATEWAY_KEY);
     if (existing) {
       if (existing.status === "CONNECTED" || existing.status === "QR_READY" || existing.status === "AUTHENTICATED") {
         return existing;
       }
-      if (existing.status === "INITIALIZING" && Date.now() - (existing.createdAt || 0) < 45000) {
+      if (existing.status === "INITIALIZING" && Date.now() - (existing.createdAt || 0) < 60000) {
         return existing;
       }
-      console.warn(`⏳ [WHATSAPP] Sesión previa de ${cleanEmail} estancada en ${existing.status}. Reconstruyendo limpiamente...`);
+      console.warn(`⏳ [WHATSAPP] Pasarela estancada en ${existing.status}. Reconstruyendo limpiamente...`);
       await safelyDestroyClient(existing.client);
-      sessions.delete(cleanEmail);
+      sessions.delete(CORPORATE_GATEWAY_KEY);
       if (fs.existsSync(sessionDir)) {
         try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
       }
@@ -898,11 +897,14 @@ async function getOrCreateUserSession(userEmail) {
     client: null,
     status: "INITIALIZING",
     qr: "",
-    userEmail: cleanEmail,
+    userEmail: CORPORATE_GATEWAY_KEY,
     info: null,
     createdAt: Date.now()
   };
-  sessions.set(cleanEmail, sessionData);
+  sessions.set(CORPORATE_GATEWAY_KEY, sessionData);
+
+  io.emit("status", "INITIALIZING");
+  io.emit("qr", "");
 
   // Asegurar que el entorno de Chromium en la nube esté completamente resuelto
   await getChromiumEnvironment();
@@ -931,7 +933,7 @@ async function getOrCreateUserSession(userEmail) {
     puppeteerConfig.executablePath = resolvedChromiumExecutable;
   }
 
-  console.log(`🚀 [WHATSAPP] Iniciando pasarela para: ${cleanEmail}...`);
+  console.log(`🚀 [WHATSAPP] Iniciando pasarela corporativa de WhatsApp...`);
 
   const client = new Client({
     authStrategy: new LocalAuth({ clientId, dataPath: authDataPath }),
@@ -950,26 +952,26 @@ async function getOrCreateUserSession(userEmail) {
     try {
       sessionData.status = "QR_READY";
       sessionData.qr = await qrcode.toDataURL(qr);
-      io.to(cleanEmail).emit("status", "QR_READY");
-      io.to(cleanEmail).emit("qr", sessionData.qr);
-      console.log(`📱 [QR] Código QR generado para: ${cleanEmail}`);
+      io.emit("status", "QR_READY");
+      io.emit("qr", sessionData.qr);
+      console.log(`📱 [QR] Código QR generado para la pasarela de WhatsApp`);
     } catch (qrErr) {
-      console.error(`⚠️ [QR] Error convirtiendo código QR para ${cleanEmail}:`, qrErr.message);
+      console.error(`⚠️ [QR] Error convirtiendo código QR:`, qrErr.message);
     }
   });
 
   client.on("authenticated", () => {
     sessionData.status = "AUTHENTICATED";
     sessionData.qr = "";
-    io.to(cleanEmail).emit("status", "AUTHENTICATED");
-    io.to(cleanEmail).emit("qr", "");
-    io.to(cleanEmail).emit("log", "🔐 [WHATSAPP] Código QR escaneado con éxito. Autenticando sesión...");
-    console.log(`🔐 [WHATSAPP] Autenticado para: ${cleanEmail}`);
+    io.emit("status", "AUTHENTICATED");
+    io.emit("qr", "");
+    io.emit("log", "🔐 [WHATSAPP] Código QR escaneado con éxito. Autenticando sesión...");
+    console.log(`🔐 [WHATSAPP] Autenticado para la pasarela corporativa.`);
   });
 
   client.on("loading_screen", (percent, message) => {
     console.log(`⏳ [WHATSAPP] Cargando (${percent}%): ${message || ''}`);
-    io.to(cleanEmail).emit("log", `⏳ [WHATSAPP] Sincronizando chats (${percent}%)...`);
+    io.emit("log", `⏳ [WHATSAPP] Sincronizando chats (${percent}%)...`);
   });
 
   client.on("ready", () => {
@@ -978,20 +980,20 @@ async function getOrCreateUserSession(userEmail) {
     try {
       sessionData.info = client.info;
     } catch {}
-    io.to(cleanEmail).emit("status", "CONNECTED");
-    io.to(cleanEmail).emit("qr", "");
-    console.log(`✅ [WHATSAPP] Sesión vinculada con éxito para: ${cleanEmail}`);
+    io.emit("status", "CONNECTED");
+    io.emit("qr", "");
+    console.log(`✅ [WHATSAPP] Sesión vinculada con éxito para la pasarela corporativa.`);
   });
 
   client.on("auth_failure", async (msg) => {
-    console.error(`❌ [WHATSAPP] Fallo de autenticación para ${cleanEmail}:`, msg);
+    console.error(`❌ [WHATSAPP] Fallo de autenticación:`, msg);
     sessionData.status = "DISCONNECTED";
     sessionData.qr = "";
-    io.to(cleanEmail).emit("status", "DISCONNECTED");
-    io.to(cleanEmail).emit("qr", "");
-    io.to(cleanEmail).emit("log", "⚠️ [WHATSAPP] Sesión anterior expirada o inválida. Limpiando para generar nuevo QR...");
+    io.emit("status", "DISCONNECTED");
+    io.emit("qr", "");
+    io.emit("log", "⚠️ [WHATSAPP] Sesión anterior expirada o inválida. Limpiando para generar nuevo QR...");
     await safelyDestroyClient(client);
-    sessions.delete(cleanEmail);
+    sessions.delete(CORPORATE_GATEWAY_KEY);
     if (fs.existsSync(sessionDir)) {
       try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
     }
@@ -1001,24 +1003,23 @@ async function getOrCreateUserSession(userEmail) {
     sessionData.status = "DISCONNECTED";
     sessionData.qr = "";
     sessionData.info = null;
-    io.to(cleanEmail).emit("status", "DISCONNECTED");
-    io.to(cleanEmail).emit("qr", "");
-    console.log(`⚠️ [WHATSAPP] Sesión desconectada para ${cleanEmail}: ${reason}`);
+    io.emit("status", "DISCONNECTED");
+    io.emit("qr", "");
+    console.log(`⚠️ [WHATSAPP] Sesión desconectada: ${reason}`);
     await safelyDestroyClient(client);
-    sessions.delete(cleanEmail);
+    sessions.delete(CORPORATE_GATEWAY_KEY);
   });
 
   client.initialize().catch(async (err) => {
     const errorMsg = (err && err.message) ? err.message : String(err || "Error desconocido");
-    console.error(`⚠️ Error al inicializar WhatsApp para ${cleanEmail}:`, errorMsg);
+    console.error(`⚠️ Error al inicializar pasarela WhatsApp:`, errorMsg);
     sessionData.status = "DISCONNECTED";
     sessionData.qr = "";
-    io.to(cleanEmail).emit("status", "DISCONNECTED");
-    io.to(cleanEmail).emit("log", `⚠️ Error inicializando pasarela WhatsApp: ${errorMsg}`);
+    io.emit("status", "DISCONNECTED");
+    io.emit("log", `⚠️ Error inicializando pasarela WhatsApp: ${errorMsg}`);
     await safelyDestroyClient(client);
-    sessions.delete(cleanEmail);
+    sessions.delete(CORPORATE_GATEWAY_KEY);
 
-    // Si falló por timeout de autenticación o bloqueo, limpiar directorio huérfano para posibilitar nuevo QR
     if (fs.existsSync(sessionDir)) {
       try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
     }
@@ -1032,9 +1033,10 @@ io.on("connection", async (socket) => {
   if (!userEmail) return;
 
   socket.join(userEmail);
+  socket.join(CORPORATE_GATEWAY_KEY);
 
   try {
-    const session = await getOrCreateUserSession(userEmail);
+    const session = await getOrCreateUserSession();
     if (session) {
       socket.emit("status", session.status);
       if (session.status === "QR_READY" && session.qr) {
@@ -1042,7 +1044,7 @@ io.on("connection", async (socket) => {
       }
     }
   } catch (err) {
-    console.warn(`⚠️ Error en conexión socket para ${userEmail}:`, err.message);
+    console.warn(`⚠️ Error en conexión socket:`, err.message);
   }
 });
 
@@ -1254,20 +1256,18 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
   io.to(userEmail).emit("log", `🚀 [COBRO AUTOMÁTICO] Campaña finalizada con éxito.`);
 });
 
-// Obtener estado actual personal del usuario
+// Obtener estado actual de la pasarela de WhatsApp
 app.get("/api/status", authenticateToken, async (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  const session = await getOrCreateUserSession(userEmail);
+  const session = await getOrCreateUserSession();
   res.json({
     status: session ? session.status : "DISCONNECTED",
     qr: session && session.status === "QR_READY" ? session.qr : ""
   });
 });
 
-// Desvincular WhatsApp / Generar nuevo código QR personal
+// Desvincular WhatsApp / Generar nuevo código QR para la pasarela corporativa
 app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  const session = sessions.get(userEmail);
+  const session = sessions.get(CORPORATE_GATEWAY_KEY);
   if (session && session.client) {
     if (session.status === "CONNECTED") {
       try {
@@ -1276,13 +1276,13 @@ app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
           new Promise((_, reject) => setTimeout(() => reject(new Error("Logout timeout")), 2500))
         ]);
       } catch (err) {
-        console.warn(`⚠️ [WHATSAPP] Logout no completado limpiamente para ${userEmail}:`, err.message);
+        console.warn(`⚠️ [WHATSAPP] Logout no completado limpiamente:`, err.message);
       }
     }
     await safelyDestroyClient(session.client);
-    sessions.delete(userEmail);
+    sessions.delete(CORPORATE_GATEWAY_KEY);
   }
-  const clientId = getSessionClientId(userEmail);
+  const clientId = getSessionClientId();
   const authDataPath = process.platform === "linux"
     ? path.join("/tmp", ".wwebjs_auth")
     : path.join(DATA_DIR, ".wwebjs_auth");
@@ -1290,12 +1290,12 @@ app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
   if (fs.existsSync(sessionPath)) {
     try { fs.rmSync(sessionPath, { recursive: true, force: true }); } catch {}
   }
-  io.to(userEmail).emit("status", "INITIALIZING");
-  io.to(userEmail).emit("qr", "");
+  io.emit("status", "INITIALIZING");
+  io.emit("qr", "");
   setTimeout(async () => {
-    await getOrCreateUserSession(userEmail);
+    await getOrCreateUserSession();
   }, 600);
-  res.json({ success: true, message: "WhatsApp reiniciado con éxito. Generando nuevo código QR..." });
+  res.json({ success: true, message: "Pasarela de WhatsApp reiniciada con éxito. Generando nuevo código QR..." });
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -1979,24 +1979,31 @@ app.post("/api/test/simulate", authenticateToken, authorizeAdmin, async (req, re
 
 // 6. Reinicio de Sesión WhatsApp / Regenerar QR (Solo Admin)
 app.post("/api/test/restart-client", authenticateToken, authorizeAdmin, async (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
   try {
-    io.to(userEmail).emit("log", "🔄 [SISTEMA] Reiniciando cliente de WhatsApp...");
-    const session = sessions.get(userEmail);
+    io.emit("log", "🔄 [SISTEMA] Reiniciando pasarela corporativa de WhatsApp...");
+    const session = sessions.get(CORPORATE_GATEWAY_KEY);
     if (session && session.client) {
       try { await session.client.destroy(); } catch (e) { console.log("Error destroying client:", e.message); }
-      sessions.delete(userEmail);
+      sessions.delete(CORPORATE_GATEWAY_KEY);
     }
-    io.to(userEmail).emit("status", "INITIALIZING");
-    io.to(userEmail).emit("qr", "");
+    const clientId = getSessionClientId();
+    const authDataPath = process.platform === "linux"
+      ? path.join("/tmp", ".wwebjs_auth")
+      : path.join(DATA_DIR, ".wwebjs_auth");
+    const sessionPath = path.join(authDataPath, `session-${clientId}`);
+    if (fs.existsSync(sessionPath)) {
+      try { fs.rmSync(sessionPath, { recursive: true, force: true }); } catch {}
+    }
+    io.emit("status", "INITIALIZING");
+    io.emit("qr", "");
     setTimeout(async () => {
-      await getOrCreateUserSession(userEmail);
+      await getOrCreateUserSession();
     }, 1200);
 
-    return res.json({ message: "Reinicio del cliente de WhatsApp iniciado." });
+    return res.json({ message: "Reinicio de la pasarela de WhatsApp iniciado." });
   } catch (err) {
-    console.error("⚠️ Error reiniciando cliente:", err.message);
-    return res.status(500).json({ error: "Error al reiniciar cliente." });
+    console.error("⚠️ Error reiniciando pasarela:", err.message);
+    return res.status(500).json({ error: "Error al reiniciar pasarela." });
   }
 });
 
@@ -2051,4 +2058,6 @@ server.listen(PORT, "0.0.0.0", async () => {
   initAutoBackup();
   initSeedData();
   console.log("✅ Servidor listo y en escucha de conexiones HTTP y WebSockets.");
+  // Pre-arrancar inmediatamente la pasarela corporativa para que el QR esté listo de inmediato
+  getOrCreateUserSession().catch(e => console.warn("⚠️ [INICIO] Aviso pre-arrancando pasarela WhatsApp:", e.message));
 });
