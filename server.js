@@ -881,10 +881,10 @@ async function getOrCreateUserSession(userEmail) {
       if (existing.status === "CONNECTED" || existing.status === "QR_READY" || existing.status === "AUTHENTICATED") {
         return existing;
       }
-      if (existing.status === "INITIALIZING" && Date.now() - (existing.createdAt || 0) < 60000) {
+      if (existing.status === "INITIALIZING" && Date.now() - (existing.createdAt || 0) < 180000) {
         return existing;
       }
-      console.warn(`⏳ [WHATSAPP] Pasarela estancada en ${existing.status}. Reconstruyendo limpiamente...`);
+      console.warn(`⏳ [WHATSAPP] Pasarela estancada en ${existing.status} tras más de 3 minutos. Reconstruyendo limpiamente...`);
       await safelyDestroyClient(existing.client);
       sessions.delete(CORPORATE_GATEWAY_KEY);
       if (fs.existsSync(sessionDir)) {
@@ -1036,10 +1036,13 @@ io.on("connection", async (socket) => {
   socket.join(CORPORATE_GATEWAY_KEY);
 
   try {
-    const session = await getOrCreateUserSession();
+    let session = sessions.get(CORPORATE_GATEWAY_KEY);
+    if (!session) {
+      session = await getOrCreateUserSession();
+    }
     if (session) {
       socket.emit("status", session.status);
-      if (session.status === "QR_READY" && session.qr) {
+      if (session.qr) {
         socket.emit("qr", session.qr);
       }
     }
@@ -1154,8 +1157,8 @@ app.post("/api/send", authenticateToken, async (req, res) => {
           `🔄 [SISTEMA] Sesión de WhatsApp interrumpida. Limpiando para reconexión...`,
         );
         if (session && session.client) {
-          try { session.client.destroy().catch(() => {}); } catch {}
-          sessions.delete(userEmail);
+          safelyDestroyClient(session.client);
+          sessions.delete(CORPORATE_GATEWAY_KEY);
         }
       }
     }
@@ -1248,7 +1251,7 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
         );
         if (session && session.client) {
           safelyDestroyClient(session.client);
-          sessions.delete(userEmail);
+          sessions.delete(CORPORATE_GATEWAY_KEY);
         }
       }
     }
@@ -1258,10 +1261,13 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
 
 // Obtener estado actual de la pasarela de WhatsApp
 app.get("/api/status", authenticateToken, async (req, res) => {
-  const session = await getOrCreateUserSession();
+  let session = sessions.get(CORPORATE_GATEWAY_KEY);
+  if (!session) {
+    session = await getOrCreateUserSession();
+  }
   res.json({
     status: session ? session.status : "DISCONNECTED",
-    qr: session && session.status === "QR_READY" ? session.qr : ""
+    qr: session && session.qr ? session.qr : ""
   });
 });
 
@@ -1770,8 +1776,7 @@ app.delete("/api/clients", authenticateToken, async (req, res) => {
 
 // 1. Health Check & Métricas del Servidor
 app.get("/api/test/health", authenticateToken, async (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  const session = sessions.get(userEmail);
+  const session = sessions.get(CORPORATE_GATEWAY_KEY);
   const uptimeSec = Math.floor(process.uptime());
   const hours = Math.floor(uptimeSec / 3600);
   const minutes = Math.floor((uptimeSec % 3600) / 60);
@@ -1837,8 +1842,7 @@ app.get("/api/health", (req, res) => {
 
 // 2. Ping / Medidor de Latencia
 app.post("/api/test/ping", authenticateToken, async (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
-  const session = sessions.get(userEmail);
+  const session = sessions.get(CORPORATE_GATEWAY_KEY);
   res.json({
     pong: true,
     clientTimestamp: req.body.timestamp || null,
