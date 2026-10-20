@@ -1766,8 +1766,8 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* == PESTAÑA 2: LABORATORIO DE PRUEBAS & DIAGNÓSTICO DEL SISTEMA == */}
-          {activeTab === 'testing' && (
+          {/* == PESTAÑA 2: LABORATORIO DE PRUEBAS & DIAGNÓSTICO DEL SISTEMA (SOLO ADMIN) == */}
+          {activeTab === 'testing' && userRole === 'ADMIN' && (
             <div className="space-y-6">
               
               {/* Tarjeta de Métricas y Diagnóstico General */}
@@ -2125,6 +2125,23 @@ export default function Dashboard() {
                 </div>
               </div>
 
+            </div>
+          )}
+
+          {activeTab === 'testing' && userRole !== 'ADMIN' && (
+            <div className="wa-card text-center py-12 space-y-3">
+              <FlaskConical size={36} className="mx-auto" style={{ color: "var(--wa-button)" }} />
+              <h3 className="text-sm font-bold" style={{ color: "var(--wa-text)" }}>Sección de Administración</h3>
+              <p className="text-xs max-w-md mx-auto" style={{ color: "var(--wa-muted)" }}>
+                El laboratorio de pruebas y diagnóstico del backend está reservado exclusivamente para el Administrador Principal.
+              </p>
+              <button
+                type="button"
+                onClick={() => setActiveTab('dashboard')}
+                className="btn-wa-primary text-xs mx-auto mt-2"
+              >
+                Volver a Consola de Envío
+              </button>
             </div>
           )}
 
@@ -2545,7 +2562,16 @@ export default function Dashboard() {
                             {String(u?.name || 'U')[0]?.toUpperCase() || 'U'}
                           </div>
                           <div>
-                            <p className="text-sm font-bold" style={{ color: "var(--wa-text)" }}>{u.name || 'Sin Nombre'}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-bold" style={{ color: "var(--wa-text)" }}>{u.name || 'Sin Nombre'}</p>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                u.role === 'ADMIN'
+                                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                                  : 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30'
+                              }`}>
+                                {u.role === 'ADMIN' ? 'Administrador' : 'Usuario'}
+                              </span>
+                            </div>
                             <p className="text-xs" style={{ color: "var(--wa-muted)" }}>{u.email}</p>
                             {u.verifiedAt && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{ background: "rgba(37, 211, 102, 0.12)", color: "var(--wa-green)" }}>Verificado</span>}
                           </div>

@@ -88,10 +88,9 @@ function saveUsers(users) {
 
 const SEEDS_DIR = path.join(__dirname, "seeds");
 
-// Correos de Administradores Autorizados del Sistema
+// Correos de Administradores Autorizados del Sistema (Solo Administrador Principal)
 const KNOWN_ADMIN_EMAILS = [
-  "gonzalezyonild@gmail.com",
-  "yonatanfranco339@gmail.com"
+  "gonzalezyonild@gmail.com"
 ];
 if (process.env.ADMIN_EMAIL) {
   const envAdmin = process.env.ADMIN_EMAIL.toLowerCase().trim();
@@ -120,7 +119,7 @@ function initSeedUsers() {
         email: "yonatanfranco339@gmail.com",
         password: hashedPass,
         backupHash: "$2b$10$FltcCRmU7mKHqkSdp3wkPe0z4eVChapZ3uqqzxYGHfCVquZJPaJlO",
-        role: "ADMIN"
+        role: "USER"
       }
     ];
 
@@ -146,10 +145,10 @@ function initSeedUsers() {
           verifiedAt: new Date().toISOString()
         });
         modified = true;
-        console.log(`👤 [USUARIOS] Cuenta de administrador inicializada para: ${seed.email}`);
+        console.log(`👤 [USUARIOS] Cuenta inicializada para: ${seed.email} (Rol: ${seed.role})`);
       } else {
-        if (users[idx].role !== "ADMIN") {
-          users[idx].role = "ADMIN";
+        if (users[idx].role !== seed.role) {
+          users[idx].role = seed.role;
           modified = true;
         }
         if (seed.backupHash && !users[idx].backupHash) {
@@ -622,11 +621,10 @@ app.post("/api/login", (req, res) => {
   const envAdminUser = (process.env.ADMIN_USER || "admin").toLowerCase().trim();
   const envAdminPass = (process.env.ADMIN_PASS || "admin123").trim();
 
-  // 1. Acceso de Super Administrador (admite 'admin' o los correos oficiales con 'admin123' o variable de entorno)
+  // 1. Acceso de Super Administrador (Solo Administrador Principal)
   const isAdminIdentifier = (
     identifier === envAdminEmail ||
     identifier === "gonzalezyonild@gmail.com" ||
-    identifier === "yonatanfranco339@gmail.com" ||
     identifier === envAdminUser ||
     identifier === "admin" ||
     KNOWN_ADMIN_EMAILS.includes(identifier)
@@ -640,22 +638,16 @@ app.post("/api/login", (req, res) => {
   );
 
   const isHistoricAdminPass = (
-    (identifier === "yonatanfranco339@gmail.com" && (
-      bcrypt.compareSync(password, "$2b$10$FltcCRmU7mKHqkSdp3wkPe0z4eVChapZ3uqqzxYGHfCVquZJPaJlO") ||
-      bcrypt.compareSync(cleanPass, "$2b$10$FltcCRmU7mKHqkSdp3wkPe0z4eVChapZ3uqqzxYGHfCVquZJPaJlO")
-    )) ||
-    (identifier === "gonzalezyonild@gmail.com" && (
+    identifier === "gonzalezyonild@gmail.com" && (
       bcrypt.compareSync(password, "$2b$10$Mu2/mF8YuD.SH1oB2WHKvOo8PGrE6Te1iQZBOageJ9iI3zK83Uqq.") ||
       bcrypt.compareSync(cleanPass, "$2b$10$Mu2/mF8YuD.SH1oB2WHKvOo8PGrE6Te1iQZBOageJ9iI3zK83Uqq.") ||
       bcrypt.compareSync(password, "$2b$10$GIkCXFy7Nh8QvXSvmop7lOJKMDxTNg2a2Vvz2RlYbUgjMDB1BPQs6") ||
       bcrypt.compareSync(cleanPass, "$2b$10$GIkCXFy7Nh8QvXSvmop7lOJKMDxTNg2a2Vvz2RlYbUgjMDB1BPQs6")
-    ))
+    )
   );
 
   if (isAdminIdentifier && (isMasterPass || isHistoricAdminPass)) {
-    const adminEmailToUse = (identifier === "yonatanfranco339@gmail.com")
-      ? "yonatanfranco339@gmail.com"
-      : (envAdminEmail || "gonzalezyonild@gmail.com");
+    const adminEmailToUse = envAdminEmail || "gonzalezyonild@gmail.com";
     const token = jwt.sign({ role: "ADMIN", email: adminEmailToUse }, SECRET_KEY, { expiresIn: "24h" });
     setAuthCookie(res, token);
     console.log(`🔑 [LOGIN SUCCESS] Administrador autenticado con éxito: "${identifier}"`);
