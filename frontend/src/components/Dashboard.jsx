@@ -389,15 +389,19 @@ export default function Dashboard() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
   }, [logs]);
 
-  const handleLogout = async () => { 
+  const handleLogout = () => { 
     try {
-      await axios.post(`${API_BASE}/api/logout`, {}, { withCredentials: true });
+      localStorage.removeItem('token'); 
+      localStorage.removeItem('wa_session_start_time');
+      localStorage.removeItem('wa_logout_reason');
+      socketRef.current?.disconnect();
     } catch {}
-    localStorage.removeItem('token'); 
-    localStorage.removeItem('wa_session_start_time');
-    localStorage.removeItem('wa_logout_reason');
-    socketRef.current?.disconnect();
-    navigate('/login'); 
+
+    try {
+      axios.post(`${API_BASE}/api/logout`, {}, { withCredentials: true, timeout: 2000 }).catch(() => {});
+    } catch {}
+
+    window.location.href = '/login'; 
   };
 
   const handleToggleAutoReset = (val) => {
@@ -424,14 +428,18 @@ export default function Dashboard() {
     showToast('success', 'Contador de inactividad reiniciado (30 minutos).');
   };
 
-  const executeAutoReset = async () => {
+  const executeAutoReset = () => {
     try {
-      await axios.post(`${API_BASE}/api/logout`, {}, { withCredentials: true }).catch(() => {});
+      localStorage.removeItem('token');
+      localStorage.setItem('wa_logout_reason', 'inactivity_30m');
+      socketRef.current?.disconnect();
     } catch {}
-    localStorage.removeItem('token');
-    localStorage.setItem('wa_logout_reason', 'inactivity_30m');
-    socketRef.current?.disconnect();
-    navigate('/login');
+
+    try {
+      axios.post(`${API_BASE}/api/logout`, {}, { withCredentials: true, timeout: 2000 }).catch(() => {});
+    } catch {}
+
+    window.location.href = '/login';
   };
 
   // Detección de movimiento y actividad del usuario (mouse, teclado, touch, scroll)
@@ -1267,6 +1275,18 @@ export default function Dashboard() {
             >
               {darkMode ? <Sun size={13} /> : <Moon size={13} />}
               <span className="hidden md:inline">{darkMode ? 'Claro' : 'Oscuro'}</span>
+            </button>
+
+            {/* Botón Cerrar Sesión en Barra Superior */}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all hover:opacity-90 cursor-pointer shadow-sm"
+              style={{ background: "rgba(234, 0, 56, 0.12)", color: "var(--wa-error)", border: "1px solid rgba(234, 0, 56, 0.25)" }}
+              title="Cerrar sesión y salir al login"
+            >
+              <LogOut size={12} />
+              <span>Salir</span>
             </button>
           </div>
         </header>
