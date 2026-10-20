@@ -1366,7 +1366,7 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      {plantillas.map((p) => (
+                      {(Array.isArray(plantillas) ? plantillas : []).map((p) => (
                         <button
                           key={p.id}
                           type="button"
@@ -2085,17 +2085,20 @@ export default function Dashboard() {
                   <div style={{ color: "#8696a0" }}>
                     [{new Date().toLocaleTimeString()}] Laboratorio de pruebas conectado vía WebSocket.
                   </div>
-                  {logs.map((log, i) => (
-                    <div 
-                      key={i} 
-                      style={{
-                        color: log.type === 'error' ? 'var(--wa-error)' : log.type === 'warn' ? '#f59e0b' : 'var(--wa-green)'
-                      }}
-                    >
-                      <span style={{ color: "#8696a0", marginRight: "6px" }}>[{log.time}]</span>
-                      <span>{log.text}</span>
-                    </div>
-                  ))}
+                  {(Array.isArray(logs) ? logs : []).map((rawLog, i) => {
+                    const log = (rawLog && typeof rawLog === 'object') ? rawLog : { text: String(rawLog || ''), time: '--', type: 'info' };
+                    return (
+                      <div 
+                        key={i} 
+                        style={{
+                          color: log.type === 'error' ? 'var(--wa-error)' : log.type === 'warn' ? '#f59e0b' : 'var(--wa-green)'
+                        }}
+                      >
+                        <span style={{ color: "#8696a0", marginRight: "6px" }}>[{log.time || '--'}]</span>
+                        <span>{log.text}</span>
+                      </div>
+                    );
+                  })}
                   <div ref={logsEndRef} />
                 </div>
               </div>
@@ -2339,8 +2342,8 @@ export default function Dashboard() {
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {filteredClients.map((c) => {
-                          const iniciales = (c && c.nombre ? c.nombre : 'CL')
+                        {(Array.isArray(filteredClients) ? filteredClients : []).map((c) => {
+                          const iniciales = String(c?.nombre || 'CL')
                             .trim()
                             .split(/\s+/)
                             .filter(Boolean)
@@ -2513,11 +2516,11 @@ export default function Dashboard() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {platformUsers.map((u, i) => (
+                    {(Array.isArray(platformUsers) ? platformUsers : []).map((u, i) => (
                       <div key={i} className="p-4 rounded-xl border flex items-center justify-between" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white shadow-sm" style={{ background: "var(--wa-button)" }}>
-                            {u.name ? u.name[0].toUpperCase() : 'U'}
+                            {String(u?.name || 'U')[0]?.toUpperCase() || 'U'}
                           </div>
                           <div>
                             <p className="text-sm font-bold" style={{ color: "var(--wa-text)" }}>{u.name || 'Sin Nombre'}</p>
@@ -2589,7 +2592,7 @@ export default function Dashboard() {
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {backups.slice(0, 8).map((b, idx) => (
+                    {(Array.isArray(backups) ? backups : []).slice(0, 8).map((b, idx) => (
                       <div key={idx} className="p-3 rounded-xl border flex items-center justify-between text-xs" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
                         <div className="flex items-center gap-2">
                           <CheckCircle2 size={14} style={{ color: "var(--wa-button)" }} />

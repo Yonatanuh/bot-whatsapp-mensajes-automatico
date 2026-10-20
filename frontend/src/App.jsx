@@ -32,6 +32,19 @@ class AppErrorBoundary extends React.Component {
     window.location.reload();
   };
 
+  handleClearCacheAndReload = () => {
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+      if ('caches' in window) {
+        caches.keys().then(names => {
+          names.forEach(name => caches.delete(name));
+        });
+      }
+    } catch {}
+    window.location.href = '/login?v=' + Date.now();
+  };
+
   render() {
     if (this.state.hasError) {
       return (
@@ -43,8 +56,7 @@ class AppErrorBoundary extends React.Component {
             <p className="app-error-eyebrow">Recuperación del sistema</p>
             <h1>Esta vista no se pudo mostrar</h1>
             <p className="app-error-copy">
-              La aplicación encontró un error al dibujar esta pantalla. El detalle técnico está disponible
-              aquí para ayudar a identificar qué ocurrió.
+              La aplicación encontró un detalle al dibujar esta pantalla. Puedes reintentar, recargar o limpiar la memoria caché del navegador para actualizar el panel a la última versión disponible.
             </p>
             <pre className="app-error-detail">{this.state.errorMessage}</pre>
             {this.state.componentStack && (
@@ -61,6 +73,10 @@ class AppErrorBoundary extends React.Component {
               <button type="button" className="app-error-secondary" onClick={this.handleReload}>
                 <RefreshCw size={16} />
                 Recargar sitio
+              </button>
+              <button type="button" className="app-error-secondary" onClick={this.handleClearCacheAndReload} style={{ borderColor: "var(--wa-button)", color: "var(--wa-button)" }}>
+                <RefreshCw size={16} />
+                Limpiar Caché y Actualizar
               </button>
             </div>
             <Link className="app-error-link" to="/login">Volver al inicio de sesión</Link>
