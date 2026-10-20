@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import './Dashboard.css';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? 'https://bot-whatsapp-mensajes-automatico.onrender.com' : 'http://localhost:3000');
 axios.defaults.withCredentials = true;
 
 const PLANTILLAS = [
@@ -1200,11 +1200,13 @@ export default function Dashboard() {
             </button>
             <div>
               <h1 className="text-sm font-bold tracking-tight" style={{ color: "var(--wa-text)" }}>
-                {activeTab === 'dashboard' && 'Campañas Automatizadas de Cobro'}
-                {activeTab === 'testing' && 'Laboratorio de Pruebas & Diagnóstico del Backend'}
-                {activeTab === 'contacts' && 'Directorio de Números Telefónicos'}
-                {activeTab === 'users' && 'Gestión de Usuarios de Plataforma'}
-                {activeTab === 'settings' && 'Ajustes del Gateway'}
+                <span>
+                  {activeTab === 'dashboard' ? 'Campañas Automatizadas de Cobro' :
+                   activeTab === 'testing' ? 'Laboratorio de Pruebas & Diagnóstico del Backend' :
+                   activeTab === 'contacts' ? 'Directorio de Números Telefónicos' :
+                   activeTab === 'users' ? 'Gestión de Usuarios de Plataforma' :
+                   activeTab === 'settings' ? 'Ajustes del Gateway' : 'Panel'}
+                </span>
               </h1>
             </div>
           </div>
@@ -1273,7 +1275,7 @@ export default function Dashboard() {
               onClick={handleToggleDarkMode}
               aria-label="Cambiar tema"
             >
-              {darkMode ? <Sun size={13} /> : <Moon size={13} />}
+              <span>{darkMode ? <Sun size={13} /> : <Moon size={13} />}</span>
               <span className="hidden md:inline">{darkMode ? 'Claro' : 'Oscuro'}</span>
             </button>
 
@@ -1514,7 +1516,7 @@ export default function Dashboard() {
                           className="hover:underline flex items-center gap-1 font-semibold"
                           style={{ color: "var(--wa-button)" }}
                         >
-                          {copiado ? <Check size={12} /> : <Copy size={12} />}
+                          <span>{copiado ? <Check size={12} /> : <Copy size={12} />}</span>
                           <span>{copiado ? 'Copiado' : 'Copiar texto'}</span>
                         </button>
                       </div>

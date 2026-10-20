@@ -1,6 +1,6 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { AlertTriangle, RefreshCw, RotateCcw } from 'lucide-react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AlertTriangle, RefreshCw, RotateCcw, LogIn } from 'lucide-react';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 
@@ -19,6 +19,12 @@ class AppErrorBoundary extends React.Component {
     this.setState({ componentStack: errorInfo.componentStack || '' });
   }
 
+  componentDidUpdate(prevProps) {
+    if (this.state.hasError && this.props.location?.pathname !== prevProps.location?.pathname) {
+      this.setState({ hasError: false, errorMessage: '', componentStack: '' });
+    }
+  }
+
   handleRetry = () => {
     this.setState(state => ({
       hasError: false,
@@ -30,6 +36,16 @@ class AppErrorBoundary extends React.Component {
 
   handleReload = () => {
     window.location.reload();
+  };
+
+  handleGoToLogin = (e) => {
+    if (e) e.preventDefault();
+    try {
+      localStorage.removeItem('token');
+      sessionStorage.removeItem('token');
+    } catch {}
+    this.setState({ hasError: false, errorMessage: '', componentStack: '' });
+    window.location.href = '/login';
   };
 
   handleClearCacheAndReload = () => {
@@ -56,7 +72,7 @@ class AppErrorBoundary extends React.Component {
             <p className="app-error-eyebrow">Recuperación del sistema</p>
             <h1>Esta vista no se pudo mostrar</h1>
             <p className="app-error-copy">
-              La aplicación encontró un detalle al dibujar esta pantalla. Puedes reintentar, recargar o limpiar la memoria caché del navegador para actualizar el panel a la última versión disponible.
+              La aplicación encontró un detalle al dibujar esta pantalla. Puedes reintentar la vista, recargar el sitio o regresar de inmediato al inicio de sesión.
             </p>
             <pre className="app-error-detail">{this.state.errorMessage}</pre>
             {this.state.componentStack && (
@@ -79,7 +95,28 @@ class AppErrorBoundary extends React.Component {
                 Limpiar Caché y Actualizar
               </button>
             </div>
-            <Link className="app-error-link" to="/login">Volver al inicio de sesión</Link>
+            <div style={{ marginTop: '16px' }}>
+              <button
+                type="button"
+                onClick={this.handleGoToLogin}
+                className="app-error-link"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  color: 'var(--wa-button, #008f6f)',
+                  fontWeight: 600,
+                  fontSize: '14px'
+                }}
+              >
+                <LogIn size={15} />
+                Volver al inicio de sesión
+              </button>
+            </div>
           </section>
         </main>
       );
@@ -89,16 +126,25 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
+function RouteBoundary({ children }) {
+  const location = useLocation();
+  return (
+    <AppErrorBoundary key={location.pathname} location={location}>
+      {children}
+    </AppErrorBoundary>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
-      <AppErrorBoundary>
+      <RouteBoundary>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
-      </AppErrorBoundary>
+      </RouteBoundary>
     </BrowserRouter>
   );
 }

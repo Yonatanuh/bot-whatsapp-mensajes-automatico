@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import "./Login.css";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
+const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? 'https://bot-whatsapp-mensajes-automatico.onrender.com' : 'http://localhost:3000');
 axios.defaults.withCredentials = true;
 
 export default function Login() {
@@ -29,10 +29,23 @@ export default function Login() {
       setSessionNotice("Tu sesión se cerró automáticamente tras 30 minutos de inactividad para proteger la privacidad de los datos de tus clientes y liberar memoria. Por favor, vuelve a ingresar.");
       localStorage.removeItem("wa_logout_reason");
     }
-    // Si ya existe una sesión previa, redirigir al Dashboard
+
+    // Verificar si el token previo sigue siendo válido y no está expirado
     const token = localStorage.getItem("token");
     if (token) {
-      navigate("/dashboard");
+      try {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(atob(parts[1]));
+          if (payload && payload.exp && payload.exp * 1000 > Date.now()) {
+            navigate("/dashboard");
+            return;
+          }
+        }
+        localStorage.removeItem("token");
+      } catch {
+        localStorage.removeItem("token");
+      }
     }
   }, [navigate]);
 
@@ -165,7 +178,7 @@ export default function Login() {
     <div className={`login-page ${darkMode ? "dark" : ""}`}>
       <div className="login-header">
         <button type="button" className="theme-toggle-btn" onClick={() => setDarkMode((d) => !d)}>
-          {darkMode ? "☀ Modo Claro" : "🌙 Modo Oscuro"}
+          <span>{darkMode ? "☀ Modo Claro" : "🌙 Modo Oscuro"}</span>
         </button>
       </div>
 
@@ -174,11 +187,15 @@ export default function Login() {
           <svg viewBox="0 0 24 24" width="64" height="64" fill="#fff"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l4.9-1.4A10 10 0 1 0 12 2zm5.2 14.1c-.2.6-1.2 1.2-1.7 1.2-.4.1-1 .1-1.6-.1-.4-.1-.9-.3-1.5-.6-2.7-1.2-4.4-3.9-4.5-4.1-.1-.2-1.1-1.4-1.1-2.7s.7-1.9.9-2.200c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.3 0 .5l-.3.4-.4.4c-.1.1-.3.3-.1.6.2.3.7 1.200 1.600 1.900 1.100 1 2 1.300 2.300 1.400.3.1.4.1.6-.1l.8-1c.2-.3.4-.2.600-.1l1.900.9c.3.1.5.2.5.3.1.2.1.700-.1 1.300z" /></svg>
         </div>
 
-        <h1>{mode === "LOGIN" ? "Iniciar sesión" : mode === "REGISTER" ? "Registro" : "Verificación por Correo"}</h1>
+        <h1>
+          <span>{mode === "LOGIN" ? "Iniciar sesión" : mode === "REGISTER" ? "Registro" : "Verificación por Correo"}</span>
+        </h1>
         <p className="subtitle">
-          {mode === "LOGIN" ? "Bienvenido de nuevo, te estábamos esperando" : 
-           mode === "REGISTER" ? "Crea tu cuenta y valida tu código de Gmail" : 
-           "Ingresa el código de 6 dígitos que enviamos a tu correo Gmail"}
+          <span>
+            {mode === "LOGIN" ? "Bienvenido de nuevo, te estábamos esperando" : 
+             mode === "REGISTER" ? "Crea tu cuenta y valida tu código de Gmail" : 
+             "Ingresa el código de 6 dígitos que enviamos a tu correo Gmail"}
+          </span>
         </p>
 
         {sessionNotice && (
@@ -200,8 +217,8 @@ export default function Login() {
           </div>
         )}
 
-        {apiError && <div className="api-error-banner">{apiError}</div>}
-        {apiSuccess && <div style={{backgroundColor: "#dcf8c6", color: "#075e54", padding: "10px 14px", borderRadius: "8px", marginBottom: "15px", fontSize: "14px", lineHeight: "1.4"}}>{apiSuccess}</div>}
+        {apiError && <div className="api-error-banner"><span>{apiError}</span></div>}
+        {apiSuccess && <div style={{backgroundColor: "#dcf8c6", color: "#075e54", padding: "10px 14px", borderRadius: "8px", marginBottom: "15px", fontSize: "14px", lineHeight: "1.4"}}><span>{apiSuccess}</span></div>}
 
         {mode === "VERIFY" && (
           <div style={{
@@ -215,7 +232,7 @@ export default function Login() {
             lineHeight: "1.4",
             textAlign: "left"
           }}>
-            ℹ️ Si no te llega al Gmail, por favor revisa la <strong>bandeja de spam</strong> ya que es una versión gratuita.
+            <span>ℹ️ Si no te llega al Gmail, por favor revisa la <strong>bandeja de spam</strong> ya que es una versión gratuita.</span>
           </div>
         )}
 
@@ -223,7 +240,7 @@ export default function Login() {
           
           {mode === "REGISTER" && (
             <div className="field">
-              <label>Nombre</label>
+              <label><span>Nombre</span></label>
               <input
                 type="text"
                 placeholder="Tu nombre"
@@ -239,7 +256,7 @@ export default function Login() {
           {(mode === "LOGIN" || mode === "REGISTER") && (
             <>
               <div className="field">
-                <label>{mode === "LOGIN" ? "Correo electrónico o Usuario" : "Correo electrónico"}</label>
+                <label><span>{mode === "LOGIN" ? "Correo electrónico o Usuario" : "Correo electrónico"}</span></label>
                 <input
                   type={mode === "LOGIN" ? "text" : "email"}
                   placeholder={mode === "LOGIN" ? "usuario@ejemplo.com o admin" : "usuario@ejemplo.com"}
@@ -252,7 +269,7 @@ export default function Login() {
               </div>
 
               <div className="field">
-                <label>Contraseña</label>
+                <label><span>Contraseña</span></label>
                 <div className="password-wrapper">
                   <input
                     type={showPassword ? "text" : "password"}
@@ -263,7 +280,7 @@ export default function Login() {
                     className={errors.password ? "invalid" : ""}
                   />
                   <button type="button" className="toggle" onClick={() => setShowPassword((s) => !s)}>
-                    {showPassword ? "Ocultar" : "Mostrar"}
+                    <span>{showPassword ? "Ocultar" : "Mostrar"}</span>
                   </button>
                 </div>
                 {errors.password && <span className="error">{errors.password}</span>}
@@ -273,7 +290,7 @@ export default function Login() {
 
           {mode === "VERIFY" && (
             <div className="field">
-              <label>Código de verificación (6 dígitos)</label>
+              <label><span>Código de verificación (6 dígitos)</span></label>
               <input
                 type="text"
                 placeholder="123456"
@@ -291,14 +308,14 @@ export default function Login() {
                   disabled={loading}
                   style={{ background: "none", border: "none", color: "#00a884", cursor: "pointer", textDecoration: "underline", padding: 0 }}
                 >
-                  Reenviar código por Gmail
+                  <span>Reenviar código por Gmail</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => { setMode("REGISTER"); setCode(""); setApiError(""); setApiSuccess(""); }}
                   style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", textDecoration: "underline", padding: 0 }}
                 >
-                  Cambiar datos
+                  <span>Cambiar datos</span>
                 </button>
               </div>
             </div>
@@ -307,22 +324,34 @@ export default function Login() {
           {mode === "LOGIN" && (
             <div className="options">
               <label className="remember">
-                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Recordarme
+                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+                <span> Recordarme</span>
               </label>
-              <a href="#forgot" onClick={(e) => { e.preventDefault(); alert("Contacte al administrador."); }}>¿Olvidaste tu contraseña?</a>
+              <a href="#forgot" onClick={(e) => { e.preventDefault(); alert("Contacte al administrador."); }}>
+                <span>¿Olvidaste tu contraseña?</span>
+              </a>
             </div>
           )}
 
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? <span className="spinner" /> : mode === "LOGIN" ? "Entrar" : mode === "REGISTER" ? "Registrarse" : "Verificar y Entrar"}
+            {loading && <span className="spinner" />}
+            <span>
+              {loading
+                ? "Entrando..."
+                : mode === "LOGIN"
+                ? "Entrar"
+                : mode === "REGISTER"
+                ? "Registrarse"
+                : "Verificar y Entrar"}
+            </span>
           </button>
         </form>
 
         <p className="signup" style={{ marginTop: "15px" }}>
           {mode === "LOGIN" ? (
-            <>¿No tienes cuenta? <a href="#registro" onClick={(e) => { e.preventDefault(); setEmail(""); setPassword(""); setMode("REGISTER"); }}>Regístrate</a></>
+            <span>¿No tienes cuenta? <a href="#registro" onClick={(e) => { e.preventDefault(); setEmail(""); setPassword(""); setMode("REGISTER"); }}>Regístrate</a></span>
           ) : (
-            <>¿Ya tienes cuenta? <a href="#login" onClick={(e) => { e.preventDefault(); setMode("LOGIN"); }}>Inicia Sesión</a></>
+            <span>¿Ya tienes cuenta? <a href="#login" onClick={(e) => { e.preventDefault(); setMode("LOGIN"); }}>Inicia Sesión</a></span>
           )}
         </p>
       </main>
