@@ -1038,7 +1038,8 @@ async function getOrCreateUserSession(userEmail) {
     }
   });
 
-  // Watchdog proactivo: detecta conexión exitosa incluso si el evento ready tarda en emitir
+  // Watchdog proactivo: detecta conexión exitosa de manera ágil sin saturar la CPU
+  let checkTicks = 0;
   const connectionCheckInterval = setInterval(async () => {
     const sess = sessions.get(CORPORATE_GATEWAY_KEY);
     if (!sess || !sess.client) {
@@ -1047,6 +1048,14 @@ async function getOrCreateUserSession(userEmail) {
     }
     if (sess.status === "CONNECTED") {
       clearInterval(connectionCheckInterval);
+      return;
+    }
+
+    // Comprobación intensiva (cada 2.5s) solo cuando el usuario ya escaneó (AUTHENTICATED).
+    // Si aún está en QR_READY o INITIALIZING, comprobar solo cada 15s para no saturar Chromium.
+    checkTicks++;
+    const isAuthenticating = sess.status === "AUTHENTICATED";
+    if (!isAuthenticating && checkTicks % 6 !== 0) {
       return;
     }
 
@@ -1369,7 +1378,7 @@ app.get("/api/status", authenticateToken, async (req, res) => {
   let session = sessions.get(CORPORATE_GATEWAY_KEY);
   if (!session) {
     session = await getOrCreateUserSession();
-  } else if (session.status !== "CONNECTED") {
+  } else if (session.status === "AUTHENTICATED") {
     await ensureSessionConnected(session);
   }
   res.json({
@@ -1402,6 +1411,13 @@ app.post("/api/whatsapp/check-status", authenticateToken, async (req, res) => {
 // Desvincular WhatsApp / Generar nuevo código QR para la pasarela corporativa
 app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
   const session = sessions.get(CORPORATE_GATEWAY_KEY);
+  if (session && session.status === "INITIALIZING") {
+    return res.json({
+      success: false,
+      message: "La pasarela de WhatsApp ya se está iniciando. Por favor espera a que se genere el código QR."
+    });
+  }
+
   if (session && session.client) {
     if (session.status === "CONNECTED") {
       try {

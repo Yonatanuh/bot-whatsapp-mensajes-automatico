@@ -337,6 +337,8 @@ export default function Dashboard() {
         setQr('');
         showToast('info', 'Código escaneado. Sincronizando mensajes...');
       } else {
+        if (res.data?.qr) setQr(res.data.qr);
+        if (res.data?.status) setStatus(res.data.status);
         showToast('warn', 'Aún no se ha detectado el escaneo. Por favor escanea el código QR con tu celular.');
       }
     } catch (err) {
@@ -345,20 +347,31 @@ export default function Dashboard() {
   };
 
   const handleDisconnectWhatsApp = async () => {
+    if (status === 'INITIALIZING') {
+      showToast('info', 'La pasarela ya se está iniciando. Por favor espera a que aparezca el código QR.');
+      fetchStatus();
+      return;
+    }
     if (status === 'CONNECTED') {
       if (!window.confirm("¿Deseas desvincular tu cuenta de WhatsApp para enlazar otro número telefónico?")) return;
+    } else {
+      if (!window.confirm("¿Deseas reiniciar la conexión de WhatsApp para regenerar el código QR?")) return;
     }
     try {
       const token = localStorage.getItem('token');
       setStatus('INITIALIZING');
       setQr('');
-      await axios.post(`${API_BASE}/api/whatsapp/disconnect`, {}, {
+      showToast('info', 'Reiniciando pasarela de WhatsApp...');
+      const res = await axios.post(`${API_BASE}/api/whatsapp/disconnect`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      showToast('info', 'Reiniciando pasarela de WhatsApp y generando nuevo código QR...');
-      setTimeout(fetchStatus, 2000);
+      if (res.data?.message) {
+        showToast('info', res.data.message);
+      }
+      setTimeout(fetchStatus, 3000);
     } catch (err) {
-      showToast('error', err.response?.data?.error || 'Error al reiniciar WhatsApp.');
+      showToast('error', err.response?.data?.message || err.response?.data?.error || 'Error al reiniciar WhatsApp.');
+      fetchStatus();
     }
   };
 
@@ -1757,19 +1770,34 @@ export default function Dashboard() {
                     <div className="py-4 space-y-2">
                       <div className="flex items-center justify-center gap-2" style={{ color: "var(--wa-muted)" }}>
                         <Loader2 size={16} className="animate-spin" style={{ color: "var(--wa-button)" }} />
-                        <span className="text-xs font-semibold">Generando tu código QR personal...</span>
+                        <span className="text-xs font-semibold">
+                          {status === 'INITIALIZING'
+                            ? 'Iniciando pasarela de WhatsApp en la nube...'
+                            : status === 'QR_READY'
+                              ? 'Cargando código QR...'
+                              : 'Conectando con la pasarela de WhatsApp...'}
+                        </span>
                       </div>
                       <p className="text-[11px]" style={{ color: "var(--wa-muted)" }}>
-                        Iniciando pasarela de WhatsApp para tu cuenta. Por favor espera unos segundos.
+                        {status === 'INITIALIZING'
+                          ? 'Preparando Chromium y cargando WhatsApp Web. Esto toma unos momentos.'
+                          : 'Esperando imagen del código QR.'}
                       </p>
-                      <div className="pt-2">
+                      <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { fetchStatus(); showToast('info', 'Consultando estado del código QR...'); }}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all shadow-sm"
+                          style={{ borderColor: "var(--wa-button)", color: "var(--wa-button)", background: "rgba(0, 168, 132, 0.08)" }}
+                        >
+                          Actualizar Código QR
+                        </button>
                         <button
                           type="button"
                           onClick={handleDisconnectWhatsApp}
-                          className="text-[11px] px-3 py-1 rounded-md border font-medium transition-all hover:bg-gray-100 dark:hover:bg-gray-800"
-                          style={{ borderColor: "var(--wa-border)", color: "var(--wa-muted)" }}
+                          className="text-[11px] text-gray-500 hover:text-gray-700 underline"
                         >
-                          ¿Tarda en responder? Forzar Generación de QR
+                          Reiniciar pasarela
                         </button>
                       </div>
                     </div>
