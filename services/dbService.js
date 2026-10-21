@@ -198,56 +198,36 @@ async function syncSeedsToMongo() {
   if (!isConnected || !mongoDb) return;
 
   try {
-    // 1. Clientes
+    // 1. Clientes: Limpieza y purga permanente de clientes ficticios/semilla
     const clientsColl = mongoDb.collection("clients");
-    const countClients = await clientsColl.countDocuments();
-    const localClients = loadLocalClients();
-    
-    // Si la colección de MongoDB está vacía, migrar clientes locales o semillas
-    if (countClients === 0) {
-      let seedList = [];
-      const seedClientsFile = path.join(SEEDS_DIR, "clients.json");
-      if (fs.existsSync(seedClientsFile)) {
-        try {
-          seedList = JSON.parse(fs.readFileSync(seedClientsFile, "utf-8")) || [];
-        } catch (e) {}
+    const mockSeedIds = [
+      "1791573765845",
+      "1791575961084",
+      "1791638907058",
+      "1792434500001",
+      "1792434500002",
+      "1792434500003"
+    ];
+    const mockNumbers = [
+      "18095550101",
+      "18095550102",
+      "18095550103",
+      "18095550104",
+      "18095550105",
+      "18095550106"
+    ];
+    try {
+      const purgeResult = await clientsColl.deleteMany({
+        $or: [
+          { id: { $in: mockSeedIds } },
+          { numero: { $in: mockNumbers } }
+        ]
+      });
+      if (purgeResult.deletedCount > 0) {
+        console.log(`🧹 [DB] Purgados ${purgeResult.deletedCount} clientes ficticios de MongoDB Atlas.`);
       }
-
-      const listToInsert = localClients.length > 0 ? localClients : seedList;
-      if (listToInsert.length > 0) {
-        const docs = listToInsert.map(c => ({
-          id: c.id,
-          nombre: c.nombre,
-          numero: c.numero,
-          nota: encryptField(c.nota),
-          ownerEmail: (c.ownerEmail || "").toLowerCase().trim(),
-          agregadoEl: c.agregadoEl || new Date().toISOString()
-        }));
-        await clientsColl.insertMany(docs);
-        console.log(`📦 [DB] Migrados ${docs.length} clientes a MongoDB Atlas.`);
-      }
-    } else {
-      // Si ya hay clientes en MongoDB, asegurar que los clientes de semillas existan
-      const seedClientsFile = path.join(SEEDS_DIR, "clients.json");
-      if (fs.existsSync(seedClientsFile)) {
-        try {
-          const seedList = JSON.parse(fs.readFileSync(seedClientsFile, "utf-8")) || [];
-          for (const s of seedList) {
-            const exists = await clientsColl.findOne({ id: s.id });
-            if (!exists) {
-              await clientsColl.insertOne({
-                id: s.id,
-                nombre: s.nombre,
-                numero: s.numero,
-                nota: encryptField(s.nota),
-                ownerEmail: (s.ownerEmail || "").toLowerCase().trim(),
-                agregadoEl: s.agregadoEl || new Date().toISOString()
-              });
-              console.log(`🌱 [DB] Cliente semilla sincronizado en MongoDB: ${s.nombre} (${s.ownerEmail})`);
-            }
-          }
-        } catch (e) {}
-      }
+    } catch (purgeErr) {
+      console.warn("⚠️ [DB] Aviso purgando clientes ficticios:", purgeErr.message);
     }
 
     // 2. Usuarios
@@ -664,6 +644,18 @@ function getDbStatus() {
   };
 }
 
+async function deleteAllClients(ownerEmail) {
+  if (isConnected && mongoDb) {
+    try {
+      await mongoDb.collection("clients").deleteMany({});
+    } catch (err) {
+      console.warn("⚠️ [DB] Error vaciando colección de clientes en MongoDB:", err.message);
+    }
+  }
+  saveLocalClients([]);
+  return true;
+}
+
 module.exports = {
   connectToMongo,
   getDbStatus,
@@ -676,6 +668,7 @@ module.exports = {
   updateClient,
   deleteClient,
   deleteClientsBulk,
+  deleteAllClients,
   importClientsBatch,
   syncLocalClientsToMongo,
 

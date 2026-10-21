@@ -170,29 +170,28 @@ function initSeedData() {
   try {
     initSeedUsers();
 
-    // Auto-restaurar clientes si no existen o sincronizar clientes faltantes por cuenta
+    // Purgar de forma permanente cualquier cliente ficticio de prueba/semilla
+    const mockSeedIds = new Set([
+      "1791573765845",
+      "1791575961084",
+      "1791638907058",
+      "1792434500001",
+      "1792434500002",
+      "1792434500003"
+    ]);
+    const mockPhones = new Set([
+      "18095550101",
+      "18095550102",
+      "18095550103",
+      "18095550104",
+      "18095550105",
+      "18095550106"
+    ]);
     const currentClients = loadClients();
-    const seedClientsFile = path.join(SEEDS_DIR, "clients.json");
-    if (fs.existsSync(seedClientsFile)) {
-      try {
-        const raw = fs.readFileSync(seedClientsFile, "utf-8");
-        const seedList = JSON.parse(raw);
-        if (Array.isArray(seedList) && seedList.length > 0) {
-          if (currentClients.length === 0) {
-            saveClients(seedList);
-            console.log(`📁 [SEMILLAS] ${seedList.length} clientes restaurados automáticamente desde semillas.`);
-          } else {
-            const existingIds = new Set(currentClients.map(c => c.id));
-            const missingSeeds = seedList.filter(s => !existingIds.has(s.id));
-            if (missingSeeds.length > 0) {
-              saveClients([...currentClients, ...missingSeeds]);
-              console.log(`📁 [SEMILLAS] ${missingSeeds.length} clientes iniciales sincronizados para sus respectivas cuentas.`);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("⚠️ Error cargando clientes semilla:", e.message);
-      }
+    const filteredClients = currentClients.filter(c => !mockSeedIds.has(c.id) && !mockPhones.has(String(c.numero || "").replace(/\D/g, "")));
+    if (filteredClients.length !== currentClients.length) {
+      saveClients(filteredClients);
+      console.log(`🧹 [CLIENTES] Se eliminaron ${currentClients.length - filteredClients.length} clientes de prueba del almacenamiento local.`);
     }
 
     // Auto-restaurar plantillas si no existen
@@ -1741,9 +1740,14 @@ app.delete("/api/clients/:id", authenticateToken, async (req, res) => {
 app.delete("/api/clients", authenticateToken, async (req, res) => {
   try {
     const userEmail = req.user.email.toLowerCase();
-    const { ids } = req.body;
+    const { ids, all } = req.body;
+    if (all) {
+      await dbService.deleteAllClients(userEmail);
+      io.emit("clients_updated", []);
+      return res.json({ message: "Directorio de clientes vaciado exitosamente." });
+    }
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ error: "Se requiere un arreglo de IDs." });
+      return res.status(400).json({ error: "Se requiere un arreglo de IDs o el parámetro all: true." });
     }
     if (ids.length > 500) {
       return res.status(400).json({ error: "Máximo 500 identificadores por operación." });

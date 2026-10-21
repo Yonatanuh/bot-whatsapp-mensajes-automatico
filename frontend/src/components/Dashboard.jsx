@@ -636,6 +636,22 @@ export default function Dashboard() {
     }
   };
 
+    const handleClearAllClients = async () => {
+    if (clients.length === 0) return;
+    if (!window.confirm(`¿Confirmas que deseas vaciar y eliminar TODOS los ${clients.length} cliente(s) del directorio? Esta acción no se puede deshacer.`)) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`${API_BASE}/api/clients`, {
+        data: { all: true },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setClients([]);
+      showToast('success', 'Directorio de clientes vaciado correctamente.');
+    } catch (err) {
+      showToast('error', err.response?.data?.error || 'Error al vaciar directorio.');
+    }
+  };
+
   const handleExportClients = () => {
     if (clients.length === 0) {
       showToast('warn', 'No hay clientes registrados en tu directorio para exportar.');
@@ -2324,6 +2340,17 @@ export default function Dashboard() {
 
                         <button
                           type="button"
+                          onClick={handleClearAllClients}
+                          disabled={clients.length === 0}
+                          className="btn-wa-secondary text-xs py-2 px-3.5 hover:bg-red-500/10 text-red-500 border-red-500/30"
+                          title="Vaciar y eliminar todos los clientes del directorio"
+                        >
+                          <Trash2 size={13} />
+                          <span className="hidden sm:inline">Vaciar Directorio</span>
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={handleExportClients}
                           disabled={clients.length === 0}
                           className="btn-wa-secondary text-xs py-2 px-3.5"
@@ -2420,7 +2447,7 @@ export default function Dashboard() {
                                     </div>
                                   </div>
 
-                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                                     <button
                                       type="button"
                                       onClick={() => handleEditClick(c)}
