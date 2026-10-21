@@ -310,14 +310,37 @@ export default function Dashboard() {
       });
       if (res.data) {
         setStatus(res.data.status);
-        if (res.data.qr) {
-          setQr(res.data.qr);
-        } else if (res.data.status === 'CONNECTED') {
+        if (res.data.status === 'CONNECTED' || res.data.status === 'AUTHENTICATED' || !res.data.qr) {
           setQr('');
+        } else {
+          setQr(res.data.qr);
         }
       }
     } catch (err) {
       console.error('Error fetching status:', err);
+    }
+  };
+
+    const handleCheckWhatsAppStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      showToast('info', 'Comprobando estado de vinculación con WhatsApp...');
+      const res = await axios.post(`${API_BASE}/api/whatsapp/check-status`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data?.status === 'CONNECTED') {
+        setStatus('CONNECTED');
+        setQr('');
+        showToast('success', '¡WhatsApp está vinculado y listo!');
+      } else if (res.data?.status === 'AUTHENTICATED') {
+        setStatus('AUTHENTICATED');
+        setQr('');
+        showToast('info', 'Código escaneado. Sincronizando mensajes...');
+      } else {
+        showToast('warn', 'Aún no se ha detectado el escaneo. Por favor escanea el código QR con tu celular.');
+      }
+    } catch (err) {
+      fetchStatus();
     }
   };
 
@@ -1712,13 +1735,21 @@ export default function Dashboard() {
                       <span className="text-[11px] block mt-0.5" style={{ color: "var(--wa-muted)" }}>
                         WhatsApp &gt; Dispositivos vinculados &gt; Vincular un dispositivo
                       </span>
-                      <div className="mt-2.5">
+                      <div className="mt-3 flex flex-col sm:flex-row items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCheckWhatsAppStatus}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all shadow-sm"
+                          style={{ borderColor: "var(--wa-button)", color: "var(--wa-button)", background: "rgba(0, 168, 132, 0.08)" }}
+                        >
+                          ¿Ya escaneaste? Verificar Estado
+                        </button>
                         <button
                           type="button"
                           onClick={handleDisconnectWhatsApp}
                           className="text-[11px] text-gray-500 hover:text-gray-700 underline"
                         >
-                          ¿No conecta? Regenerar código QR
+                          Regenerar código QR
                         </button>
                       </div>
                     </div>

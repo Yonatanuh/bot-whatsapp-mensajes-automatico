@@ -960,9 +960,31 @@ async function getOrCreateUserSession(userEmail) {
     console.log(`🔐 [WHATSAPP] Autenticado para la pasarela corporativa.`);
   });
 
-  client.on("loading_screen", (percent, message) => {
+  client.on("loading_screen", async (percent, message) => {
     console.log(`⏳ [WHATSAPP] Cargando (${percent}%): ${message || ''}`);
+    if (sessionData.status !== "CONNECTED") {
+      sessionData.status = "AUTHENTICATED";
+      sessionData.qr = "";
+      io.emit("status", "AUTHENTICATED");
+      io.emit("qr", "");
+    }
     io.emit("log", `⏳ [WHATSAPP] Sincronizando chats (${percent}%)...`);
+
+    if (percent >= 80) {
+      setTimeout(async () => {
+        try {
+          const state = await client.getState().catch(() => null);
+          if (state === "CONNECTED" && sessionData.status !== "CONNECTED") {
+            sessionData.status = "CONNECTED";
+            sessionData.qr = "";
+            try { sessionData.info = client.info; } catch {}
+            io.emit("status", "CONNECTED");
+            io.emit("qr", "");
+            console.log(`✅ [WHATSAPP] Conexión detectada tras sincronización (${percent}%). Pasarela vinculada exitosamente.`);
+          }
+        } catch {}
+      }, 1200);
+    }
   });
 
   client.on("ready", () => {
@@ -1015,6 +1037,55 @@ async function getOrCreateUserSession(userEmail) {
       try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
     }
   });
+
+  // Watchdog proactivo: detecta conexión exitosa incluso si el evento ready tarda en emitir
+  const connectionCheckInterval = setInterval(async () => {
+    const sess = sessions.get(CORPORATE_GATEWAY_KEY);
+    if (!sess || !sess.client) {
+      clearInterval(connectionCheckInterval);
+      return;
+    }
+    if (sess.status === "CONNECTED") {
+      clearInterval(connectionCheckInterval);
+      return;
+    }
+
+    try {
+      const state = await sess.client.getState().catch(() => null);
+      if (state === "CONNECTED") {
+        sess.status = "CONNECTED";
+        sess.qr = "";
+        try { sess.info = sess.client.info; } catch {}
+        io.emit("status", "CONNECTED");
+        io.emit("qr", "");
+        console.log(`✅ [WHATSAPP] Watchdog detectó conexión exitosa. Estado: CONNECTED.`);
+        clearInterval(connectionCheckInterval);
+        return;
+      }
+
+      if (sess.client.pupPage && !sess.client.pupPage.isClosed()) {
+        const hasChatList = await sess.client.pupPage.evaluate(() => {
+          return Boolean(
+            document.querySelector('#pane-side') ||
+            document.querySelector('[data-testid="chat-list"]') ||
+            document.querySelector('[data-icon="chat"]') ||
+            document.querySelector('#side')
+          );
+        }).catch(() => false);
+
+        if (hasChatList) {
+          sess.status = "CONNECTED";
+          sess.qr = "";
+          try { sess.info = sess.client.info; } catch {}
+          io.emit("status", "CONNECTED");
+          io.emit("qr", "");
+          console.log(`✅ [WHATSAPP] Interfaz de chats detectada en el DOM. Estado: CONNECTED.`);
+          clearInterval(connectionCheckInterval);
+          return;
+        }
+      }
+    } catch (e) {}
+  }, 2500);
 
   return sessionData;
 }
@@ -1085,12 +1156,54 @@ async function getValidNumberId(client, cleanNumber) {
 
 const MAX_NUMBERS_PER_BATCH = 500;
 
+async function ensureSessionConnected(session) {
+  if (!session || !session.client) return false;
+  if (session.status === "CONNECTED") return true;
+
+  try {
+    const state = await session.client.getState().catch(() => null);
+    if (state === "CONNECTED") {
+      session.status = "CONNECTED";
+      session.qr = "";
+      try { session.info = session.client.info; } catch {}
+      io.emit("status", "CONNECTED");
+      io.emit("qr", "");
+      console.log("✅ [WHATSAPP] Conexión validada exitosamente mediante getState()");
+      return true;
+    }
+
+    if (session.client.pupPage && !session.client.pupPage.isClosed()) {
+      const inDom = await session.client.pupPage.evaluate(() => {
+        return Boolean(
+          document.querySelector('#pane-side') ||
+          document.querySelector('[data-testid="chat-list"]') ||
+          document.querySelector('[data-icon="chat"]') ||
+          document.querySelector('#side')
+        );
+      }).catch(() => false);
+
+      if (inDom) {
+        session.status = "CONNECTED";
+        session.qr = "";
+        try { session.info = session.client.info; } catch {}
+        io.emit("status", "CONNECTED");
+        io.emit("qr", "");
+        console.log("✅ [WHATSAPP] Conexión validada exitosamente mediante DOM chat list");
+        return true;
+      }
+    }
+  } catch (err) {}
+
+  return false;
+}
+
 // Endpoint Protegido para enviar mensajes (Sesión y Logs aislados por cuenta)
 app.post("/api/send", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
   const session = await getOrCreateUserSession(userEmail);
 
-  if (!session || session.status !== "CONNECTED" || !session.client) {
+  const isConnected = await ensureSessionConnected(session);
+  if (!isConnected || !session || !session.client) {
     return res.status(400).json({ error: "Tu cuenta de WhatsApp no está vinculada. Por favor escanea tu código QR en la Consola." });
   }
 
@@ -1162,7 +1275,8 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
   const session = await getOrCreateUserSession(userEmail);
 
-  if (!session || session.status !== "CONNECTED" || !session.client) {
+  const isConnected = await ensureSessionConnected(session);
+  if (!isConnected || !session || !session.client) {
     return res.status(400).json({ error: "Tu cuenta de WhatsApp no está vinculada. Por favor escanea tu código QR en la Consola." });
   }
 
@@ -1255,10 +1369,33 @@ app.get("/api/status", authenticateToken, async (req, res) => {
   let session = sessions.get(CORPORATE_GATEWAY_KEY);
   if (!session) {
     session = await getOrCreateUserSession();
+  } else if (session.status !== "CONNECTED") {
+    await ensureSessionConnected(session);
   }
   res.json({
     status: session ? session.status : "DISCONNECTED",
     qr: session && session.qr ? session.qr : ""
+  });
+});
+
+// Endpoint para verificar y forzar sincronización del estado de WhatsApp
+app.post("/api/whatsapp/check-status", authenticateToken, async (req, res) => {
+  const session = sessions.get(CORPORATE_GATEWAY_KEY);
+  if (!session || !session.client) {
+    return res.json({ status: "DISCONNECTED", message: "La pasarela no está iniciada." });
+  }
+
+  const isConnected = await ensureSessionConnected(session);
+  if (isConnected) {
+    return res.json({ status: "CONNECTED", message: "WhatsApp está vinculado y listo." });
+  }
+
+  return res.json({
+    status: session.status,
+    qr: session.qr,
+    message: session.status === "AUTHENTICATED"
+      ? "Código escaneado. Sincronizando chats..."
+      : "Aún no se detecta la vinculación activa."
   });
 });
 
@@ -1863,7 +2000,8 @@ app.post("/api/test/single", authenticateToken, authorizeAdmin, async (req, res)
 
   const cleanMessage = sanitizeText(message, 4096);
 
-  if (!session || session.status !== "CONNECTED" || !session.client) {
+  const isConnected = await ensureSessionConnected(session);
+  if (!isConnected || !session || !session.client) {
     return res.status(400).json({
       error: "WhatsApp no está conectado. Enlace su cuenta o use el simulador.",
     });
@@ -1911,7 +2049,8 @@ app.post("/api/test/check-number", authenticateToken, authorizeAdmin, async (req
     return res.status(400).json({ error: "Formato telefónico inválido." });
   }
 
-  if (!session || session.status !== "CONNECTED" || !session.client) {
+  const isConnected = await ensureSessionConnected(session);
+  if (!isConnected || !session || !session.client) {
     return res.status(400).json({ error: "WhatsApp no está conectado para validar números." });
   }
 
