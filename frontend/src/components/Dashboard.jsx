@@ -172,6 +172,7 @@ export default function Dashboard() {
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
     return d.toISOString().slice(0, 16);
   });
+  const [sendAllTab, setSendAllTab] = useState('compose'); // 'compose' | 'qr' | 'wame'
 
   // Estados para Programaciones del Scheduler
   const [schedules, setSchedules] = useState([]);
@@ -1103,7 +1104,21 @@ export default function Dashboard() {
       ? message
       : 'Estimado/a {{nombre}}, le recordamos cordialmente que su cuenta presenta saldo pendiente. Por favor responda con su comprobante para actualizar su estado a la brevedad. ¡Muchas gracias!';
     setSendAllMessage(defaultTemplate);
+    setSendAllTab('compose');
     setSendAllModalOpen(true);
+  };
+
+  const handleOpenAllWhatsAppTabs = (clientList, customMsg) => {
+    if (!clientList || clientList.length === 0) return;
+    if (clientList.length > 5 && !window.confirm(`¿Confirmas abrir pestañas de WhatsApp Web para ${clientList.length} clientes?`)) {
+      return;
+    }
+    clientList.forEach((c, idx) => {
+      setTimeout(() => {
+        handleOpenWhatsAppDirect(c, customMsg);
+      }, idx * 500);
+    });
+    showToast('success', `Abriendo WhatsApp Web para ${clientList.length} cliente(s)...`);
   };
 
   const handleConfirmSendAll = async () => {
@@ -1151,9 +1166,10 @@ export default function Dashboard() {
       return;
     }
 
-    // Modo Inmediato
+    // Modo Inmediato: si no está conectado, cambiar a la pestaña de QR
     if (status !== 'CONNECTED') {
-      showToast('error', 'Tu WhatsApp no está vinculado. Por favor escanea tu código QR en la Consola antes de enviar.');
+      setSendAllTab('qr');
+      showToast('info', 'Tu WhatsApp no está vinculado. Por favor escanea el código QR para iniciar el envío.');
       return;
     }
 
@@ -1470,35 +1486,40 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* == MODAL DE ENVÍO FÁCIL A TODOS LOS CLIENTES (1 CLIC) == */}
+      {/* == MODAL PROFESIONAL DE ENVÍO A TODOS LOS CLIENTES (1 CLIC) == */}
       {sendAllModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm animate-fadeIn overflow-y-auto">
           <div 
-            className="w-full max-w-lg rounded-2xl border shadow-2xl p-5 sm:p-6 space-y-4 relative my-auto"
+            className="w-full max-w-xl rounded-3xl border shadow-2xl p-5 sm:p-7 space-y-4 relative my-auto transition-all"
             style={{ background: "var(--wa-card)", borderColor: "var(--wa-border)", color: "var(--wa-text)" }}
           >
-            {/* Cabecera del Modal */}
+            {/* Cabecera del Modal con Icono e Info */}
             <div className="flex items-start justify-between pb-3 border-b" style={{ borderColor: "var(--wa-border)" }}>
               <div className="flex items-center gap-3">
                 <div 
-                  className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shrink-0 shadow"
-                  style={{ background: "#00a884" }}
+                  className="w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-white shrink-0 shadow-md"
+                  style={{ background: "linear-gradient(135deg, #00a884, #128c7e)" }}
                 >
                   <Users size={22} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold block" style={{ color: "var(--wa-text)" }}>
-                    Enviar Mensaje a Todos mis Clientes ({clients.length})
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm sm:text-base font-bold block" style={{ color: "var(--wa-text)" }}>
+                      Enviar a Todos mis Clientes
+                    </h3>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                      {clients.length} contactos
+                    </span>
+                  </div>
                   <span className="text-xs font-medium block mt-0.5" style={{ color: "var(--wa-muted)" }}>
-                    Envío automático y personalizado para tu lista de clientes
+                    Campaña de mensajería automática y personalizada
                   </span>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setSendAllModalOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
                 style={{ color: "var(--wa-muted)" }}
                 title="Cerrar ventana"
               >
@@ -1506,78 +1527,394 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* SI WHATSAPP NO ESTÁ CONECTADO: Muestra el QR y opciones de solución directa */}
-            {status !== 'CONNECTED' ? (
-              <div className="space-y-4">
-                <div className="p-4 rounded-xl border space-y-3 text-center" style={{ background: "rgba(245, 158, 11, 0.07)", borderColor: "rgba(245, 158, 11, 0.35)" }}>
-                  <div className="flex items-center justify-center gap-2 text-amber-600 font-bold text-xs">
-                    <Smartphone size={16} />
-                    <span>WhatsApp no está vinculado actualmente</span>
+            {/* Pestañas de Navegación del Modal */}
+            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-black/5 dark:bg-white/5 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setSendAllTab('compose')}
+                className={`flex-1 py-1.5 px-3 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  sendAllTab === 'compose'
+                    ? 'bg-[#00a884] text-white shadow-sm font-bold'
+                    : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                }`}
+              >
+                <Send size={13} />
+                <span>Mensaje & Audiencia</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSendAllTab('qr'); fetchStatus(); }}
+                className={`flex-1 py-1.5 px-3 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  sendAllTab === 'qr'
+                    ? 'bg-[#00a884] text-white shadow-sm font-bold'
+                    : status !== 'CONNECTED' 
+                      ? 'text-amber-600 font-bold hover:bg-amber-500/10' 
+                      : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                }`}
+              >
+                <Smartphone size={13} />
+                <span>{status === 'CONNECTED' ? 'Vincular QR' : 'Escanear QR'}</span>
+                {status !== 'CONNECTED' && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSendAllTab('wame')}
+                className={`flex-1 py-1.5 px-3 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  sendAllTab === 'wame'
+                    ? 'bg-[#00a884] text-white shadow-sm font-bold'
+                    : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+                }`}
+              >
+                <ExternalLink size={13} />
+                <span>WhatsApp Web</span>
+              </button>
+            </div>
+
+            {/* PESTAÑA 1: REDACCIÓN & AUDIENCIA */}
+            {sendAllTab === 'compose' && (
+              <div className="space-y-4 animate-fadeIn">
+                {/* Indicador de Estado de Conexión */}
+                <div 
+                  className="p-2.5 rounded-xl border flex items-center justify-between text-xs"
+                  style={{
+                    background: status === 'CONNECTED' ? "rgba(37, 211, 102, 0.08)" : "rgba(245, 158, 11, 0.08)",
+                    borderColor: status === 'CONNECTED' ? "rgba(37, 211, 102, 0.3)" : "rgba(245, 158, 11, 0.35)"
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${status === 'CONNECTED' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+                    <span className="font-bold" style={{ color: status === 'CONNECTED' ? "var(--wa-green)" : "#d97706" }}>
+                      {status === 'CONNECTED' ? 'WhatsApp Vinculado y Listo para Transmitir' : 'WhatsApp Desconectado en la Nube'}
+                    </span>
                   </div>
-                  <p className="text-xs leading-relaxed" style={{ color: "var(--wa-muted)" }}>
-                    Para enviar en automático a todos, escanea este código con tu celular:
-                    <br />
-                    <strong className="text-[11px]" style={{ color: "var(--wa-text)" }}>WhatsApp &gt; Dispositivos vinculados &gt; Vincular un dispositivo</strong>
-                  </p>
-
-                  {/* Imagen del QR Code o Spinner */}
-                  {qr ? (
-                    <div className="py-1">
-                      <div className="inline-block p-2 rounded-2xl bg-white border-2 shadow-md" style={{ borderColor: "var(--wa-button)" }}>
-                        <img src={qr} alt="Código QR WhatsApp" className="w-44 h-44 mx-auto" />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="py-8 flex flex-col items-center justify-center gap-2">
-                      <Loader2 size={28} className="animate-spin" style={{ color: "var(--wa-button)" }} />
-                      <span className="text-xs font-semibold" style={{ color: "var(--wa-muted)" }}>
-                        Generando tu código QR... un momento
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  {status !== 'CONNECTED' && (
                     <button
                       type="button"
-                      onClick={handleCheckWhatsAppStatus}
-                      className="btn-wa-primary text-xs py-1.5 px-3.5 cursor-pointer font-bold flex items-center gap-1.5"
-                      style={{ background: "#00a884" }}
+                      onClick={() => setSendAllTab('qr')}
+                      className="text-[11px] font-bold text-amber-700 underline hover:opacity-80 cursor-pointer"
                     >
-                      <RefreshCw size={13} />
-                      <span>¿Ya lo escaneaste? Verificar</span>
+                      Ver Código QR ➔
+                    </button>
+                  )}
+                </div>
+
+                {/* Filtro de Audiencia Segmentada */}
+                <div>
+                  <span className="text-[11px] font-bold block mb-1.5" style={{ color: "var(--wa-muted)" }}>
+                    Público objetivo de este envío:
+                  </span>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSendAllAudience('ALL')}
+                      className={`p-2 rounded-xl border text-center text-xs font-bold transition-all cursor-pointer ${sendAllAudience === 'ALL' ? 'border-[#00a884] bg-[#00a884]/10 text-[#00a884] shadow-xs' : 'border-gray-200 dark:border-gray-700 text-gray-500'}`}
+                    >
+                      🎯 Todos ({clients.length})
                     </button>
                     <button
                       type="button"
-                      onClick={() => { fetchStatus(); showToast('info', 'Consultando estado...'); }}
-                      className="btn-wa-secondary text-xs py-1.5 px-3 cursor-pointer"
+                      onClick={() => setSendAllAudience('PENDIENTE')}
+                      className={`p-2 rounded-xl border text-center text-xs font-bold transition-all cursor-pointer ${sendAllAudience === 'PENDIENTE' ? 'border-amber-500 bg-amber-500/10 text-amber-600 shadow-xs' : 'border-gray-200 dark:border-gray-700 text-gray-500'}`}
                     >
-                      Refrescar QR
+                      🟡 Pendientes ({clients.filter(c => (c.estado || 'PENDIENTE') === 'PENDIENTE').length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSendAllAudience('VENCIDO')}
+                      className={`p-2 rounded-xl border text-center text-xs font-bold transition-all cursor-pointer ${sendAllAudience === 'VENCIDO' ? 'border-red-500 bg-red-500/10 text-red-600 shadow-xs' : 'border-gray-200 dark:border-gray-700 text-gray-500'}`}
+                    >
+                      🔴 Vencidos ({clients.filter(c => c.estado === 'VENCIDO').length})
                     </button>
                   </div>
                 </div>
 
-                {/* Alternativa 100% Inmediata: Envío 1 a 1 por WhatsApp Web sin esperar */}
-                <div className="p-3.5 rounded-xl border space-y-2.5" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold flex items-center gap-1.5" style={{ color: "var(--wa-text)" }}>
-                      <span>💬 O envía directo ahora (WhatsApp Web / App):</span>
-                    </span>
-                    <span className="text-[10px] text-gray-500">Sin necesidad de QR</span>
+                {/* Editor de Mensaje y Variables */}
+                <div>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="text-[11px] font-bold" style={{ color: "var(--wa-muted)" }}>
+                      Mensaje a transmitir:
+                    </label>
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <span className="text-gray-400">Insertar:</span>
+                      {['{{nombre}}', '{{nota}}', '{{monto}}'].map(tag => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setSendAllMessage(prev => (prev || '') + ' ' + tag)}
+                          className="px-1.5 py-0.5 rounded font-mono bg-black/5 dark:bg-white/10 hover:bg-[#00a884]/20 hover:text-[#00a884] transition-colors cursor-pointer"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={sendAllMessage}
+                    onChange={(e) => setSendAllMessage(e.target.value)}
+                    className="wa-textarea text-xs w-full leading-relaxed"
+                    placeholder="Escribe el mensaje personalizado que recibirán tus clientes..."
+                  />
+                  <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                    <span>{sendAllMessage.length} / 4096 caracteres</span>
+                    <span>Intervalo seguro: {delay}s entre cada envío</span>
+                  </div>
+                </div>
+
+                {/* Vista previa WhatsApp en vivo */}
+                <div className="p-3 rounded-2xl border space-y-1 shadow-inner" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
+                  <div className="flex items-center justify-between text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+                    <span>Vista previa en vivo</span>
+                    <span>Cliente: {clients[0]?.nombre || 'Elena Gómez'}</span>
+                  </div>
+                  <p className="text-xs italic leading-relaxed pt-1" style={{ color: "var(--wa-text)" }}>
+                    "{sendAllMessage
+                      .replace(/{{nombre}}/g, clients[0]?.nombre || 'Elena Gómez')
+                      .replace(/{{nota}}/g, clients[0]?.nota || 'Plan mensual activo')
+                      .replace(/{{monto}}/g, 'su saldo pendiente')
+                      .replace(/{{vencimiento}}/g, 'la fecha límite')}"
+                  </p>
+                </div>
+
+                {/* Toggle Opcional de Programación */}
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setSendAllMode(prev => prev === 'NOW' ? 'SCHEDULE' : 'NOW')}
+                    className="text-xs text-gray-500 hover:text-emerald-600 flex items-center gap-1.5 cursor-pointer font-medium"
+                  >
+                    <Calendar size={13} />
+                    <span>{sendAllMode === 'SCHEDULE' ? 'Cambiar a Enviar Inmediatamente' : '¿Programar para otra fecha u hora?'}</span>
+                  </button>
+
+                  {sendAllMode === 'SCHEDULE' && (
+                    <input
+                      type="datetime-local"
+                      value={sendAllScheduleTime}
+                      onChange={(e) => setSendAllScheduleTime(e.target.value)}
+                      className="wa-textarea text-xs py-1 px-2.5 sm:w-auto"
+                    />
+                  )}
+                </div>
+
+                {/* Acciones Finales: NUNCA DESACTIVADAS */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-3 border-t" style={{ borderColor: "var(--wa-border)" }}>
+                  <button
+                    type="button"
+                    onClick={() => setSendAllModalOpen(false)}
+                    className="btn-wa-secondary w-full sm:w-auto text-xs py-2 px-4 cursor-pointer justify-center"
+                  >
+                    Cancelar
+                  </button>
+
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    {status === 'CONNECTED' ? (
+                      <button
+                        type="button"
+                        onClick={handleConfirmSendAll}
+                        disabled={sendAllSending || !sendAllMessage.trim()}
+                        className="btn-wa-primary w-full sm:w-auto text-xs py-2.5 px-6 font-bold cursor-pointer shadow-md flex items-center justify-center gap-2"
+                        style={{ background: "#00a884" }}
+                      >
+                        {sendAllSending ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            <span>Transmitiendo Campaña...</span>
+                          </>
+                        ) : sendAllMode === 'SCHEDULE' ? (
+                          <>
+                            <Calendar size={15} />
+                            <span>Programar Envío ({
+                              sendAllAudience === 'ALL'
+                                ? clients.length
+                                : clients.filter(c => (c.estado || 'PENDIENTE') === sendAllAudience).length
+                            })</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send size={15} />
+                            <span>🚀 Enviar a Todos ({
+                              sendAllAudience === 'ALL'
+                                ? clients.length
+                                : clients.filter(c => (c.estado || 'PENDIENTE') === sendAllAudience).length
+                            })</span>
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setSendAllTab('wame')}
+                          className="btn-wa-secondary w-full sm:w-auto text-xs py-2.5 px-3.5 font-bold cursor-pointer flex items-center justify-center gap-1.5"
+                          title="Enviar individualmente por WhatsApp Web sin esperar vincular el QR"
+                        >
+                          <ExternalLink size={13} />
+                          <span>Enviar vía Web</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSendAllTab('qr')}
+                          className="btn-wa-primary w-full sm:w-auto text-xs py-2.5 px-5 font-bold cursor-pointer shadow-md flex items-center justify-center gap-2"
+                          style={{ background: "#d97706" }}
+                          title="Escanear código QR para activar el envío en lote"
+                        >
+                          <Smartphone size={15} />
+                          <span>Vincular QR para Enviar</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PESTAÑA 2: VINCULACIÓN CON CÓDIGO QR */}
+            {sendAllTab === 'qr' && (
+              <div className="space-y-4 animate-fadeIn">
+                <div className="p-4 rounded-2xl border space-y-3 text-center" style={{ background: "rgba(245, 158, 11, 0.06)", borderColor: "rgba(245, 158, 11, 0.35)" }}>
+                  <div className="flex items-center justify-center gap-2 text-amber-600 font-bold text-xs">
+                    <Smartphone size={16} />
+                    <span>Vinculación Rápida de WhatsApp en la Nube</span>
                   </div>
 
-                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                    {clients.map(c => (
-                      <div key={c.id} className="flex items-center justify-between p-2 rounded-lg bg-black/5 dark:bg-white/5 text-xs">
-                        <div>
-                          <span className="font-bold block" style={{ color: "var(--wa-text)" }}>{c.nombre}</span>
-                          <span className="text-[10px]" style={{ color: "var(--wa-muted)" }}>+{c.numero}</span>
+                  {status === 'CONNECTED' ? (
+                    <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 space-y-2">
+                      <div className="flex items-center justify-center gap-2 font-bold text-sm">
+                        <CheckCircle2 size={18} />
+                        <span>¡Tu WhatsApp ya está vinculado y listo!</span>
+                      </div>
+                      <p className="text-xs">
+                        Puedes regresar a la pestaña de mensaje y transmitir tu campaña a todos los clientes.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setSendAllTab('compose')}
+                        className="btn-wa-primary text-xs py-2 px-5 font-bold mx-auto cursor-pointer"
+                        style={{ background: "#00a884" }}
+                      >
+                        Continuar al Envío ➔
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs leading-relaxed" style={{ color: "var(--wa-muted)" }}>
+                        Escanea este código con tu celular para que el sistema envíe tus mensajes automáticamente:
+                        <br />
+                        <strong className="text-[11px]" style={{ color: "var(--wa-text)" }}>
+                          WhatsApp &gt; Dispositivos vinculados &gt; Vincular un dispositivo
+                        </strong>
+                      </p>
+
+                      {qr ? (
+                        <div className="py-1">
+                          <div className="inline-block p-2 rounded-2xl bg-white border-2 shadow-lg" style={{ borderColor: "#00a884" }}>
+                            <img src={qr} alt="Código QR WhatsApp" className="w-44 h-44 mx-auto" />
+                          </div>
                         </div>
+                      ) : (
+                        <div className="py-8 flex flex-col items-center justify-center gap-2">
+                          <Loader2 size={28} className="animate-spin" style={{ color: "var(--wa-button)" }} />
+                          <span className="text-xs font-semibold" style={{ color: "var(--wa-muted)" }}>
+                            Generando tu código QR... por favor espera un momento
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleCheckWhatsAppStatus}
+                          className="btn-wa-primary text-xs py-2 px-4 cursor-pointer font-bold flex items-center gap-1.5 shadow-sm"
+                          style={{ background: "#00a884" }}
+                        >
+                          <RefreshCw size={13} />
+                          <span>¿Ya lo escaneaste? Verificar Estado</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { fetchStatus(); showToast('info', 'Actualizando código QR...'); }}
+                          className="btn-wa-secondary text-xs py-2 px-3.5 cursor-pointer"
+                        >
+                          Refrescar QR
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t" style={{ borderColor: "var(--wa-border)" }}>
+                  <button
+                    type="button"
+                    onClick={() => setSendAllTab('compose')}
+                    className="btn-wa-secondary text-xs py-2 px-4 cursor-pointer"
+                  >
+                    ← Volver al Mensaje
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSendAllTab('wame')}
+                    className="text-xs font-bold text-[#00a884] hover:underline cursor-pointer flex items-center gap-1"
+                  >
+                    <span>O enviar directo vía WhatsApp Web</span>
+                    <ExternalLink size={12} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* PESTAÑA 3: WHATSAPP WEB DIRECTO (wa.me) */}
+            {sendAllTab === 'wame' && (
+              <div className="space-y-4 animate-fadeIn">
+                <div className="p-3.5 rounded-2xl border space-y-2" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold block" style={{ color: "var(--wa-text)" }}>
+                        Envío Inmediato vía WhatsApp Web (Sin Código QR)
+                      </span>
+                      <span className="text-[11px] block" style={{ color: "var(--wa-muted)" }}>
+                        Abre cada conversación con el mensaje ya redactado y personalizado.
+                      </span>
+                    </div>
+                    {clients.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAllWhatsAppTabs(clients, sendAllMessage || message)}
+                        className="btn-wa-primary text-[11px] py-1.5 px-3 font-bold cursor-pointer shadow-xs flex items-center gap-1"
+                        style={{ background: "#00a884" }}
+                        title="Abrir pestañas de WhatsApp Web para todos los clientes a la vez"
+                      >
+                        <ExternalLink size={12} />
+                        <span>Abrir Todos</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 max-h-52 overflow-y-auto pr-1 pt-1">
+                    {clients.map(c => (
+                      <div 
+                        key={c.id} 
+                        className="flex items-center justify-between p-2.5 rounded-xl border transition-all text-xs"
+                        style={{ background: "var(--wa-card)", borderColor: "var(--wa-border)" }}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div 
+                            className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs text-white shrink-0"
+                            style={{ background: "linear-gradient(135deg, #075e54, #128c7e)" }}
+                          >
+                            {(c.nombre || 'CL').slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <span className="font-bold block" style={{ color: "var(--wa-text)" }}>{c.nombre}</span>
+                            <span className="text-[10px]" style={{ color: "var(--wa-muted)" }}>+{c.numero}</span>
+                          </div>
+                        </div>
+
                         <button
                           type="button"
                           onClick={() => handleOpenWhatsAppDirect(c, sendAllMessage || message)}
-                          className="btn-wa-primary text-xs py-1 px-3 cursor-pointer flex items-center gap-1 font-bold shadow-xs"
+                          className="btn-wa-primary text-xs py-1.5 px-3 cursor-pointer flex items-center gap-1.5 font-bold shadow-xs"
                           style={{ background: "#00a884" }}
-                          title={`Abrir WhatsApp Web con el mensaje pre-cargado para ${c.nombre}`}
                         >
                           <ExternalLink size={12} />
                           <span>Enviar a {c.nombre.split(' ')[0]}</span>
@@ -1587,155 +1924,20 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div className="flex justify-end pt-2">
+                <div className="flex items-center justify-between pt-2 border-t" style={{ borderColor: "var(--wa-border)" }}>
+                  <button
+                    type="button"
+                    onClick={() => setSendAllTab('compose')}
+                    className="btn-wa-secondary text-xs py-2 px-4 cursor-pointer"
+                  >
+                    ← Volver al Mensaje
+                  </button>
                   <button
                     type="button"
                     onClick={() => setSendAllModalOpen(false)}
                     className="btn-wa-secondary text-xs py-2 px-4 cursor-pointer"
                   >
                     Cerrar
-                  </button>
-                </div>
-              </div>
-            ) : (
-              /* SI WHATSAPP ESTÁ CONECTADO: Flujo Simple y Directo */
-              <div className="space-y-4">
-                {/* Estado Conectado */}
-                <div className="flex items-center justify-between text-xs px-3.5 py-2 rounded-xl border" 
-                     style={{ background: "rgba(37, 211, 102, 0.08)", borderColor: "rgba(37, 211, 102, 0.3)" }}>
-                  <span className="font-semibold" style={{ color: "var(--wa-muted)" }}>Estado de Conexión:</span>
-                  <span className="font-bold flex items-center gap-1.5" style={{ color: "var(--wa-green)" }}>
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                    <span>WhatsApp Vinculado y Listo</span>
-                  </span>
-                </div>
-
-                {/* Audiencia */}
-                <div>
-                  <span className="text-[11px] font-bold block mb-1.5" style={{ color: "var(--wa-muted)" }}>
-                    Enviar a:
-                  </span>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSendAllAudience('ALL')}
-                      className={`p-2 rounded-xl border text-center text-xs font-bold transition-all cursor-pointer ${sendAllAudience === 'ALL' ? 'border-[#00a884] bg-[#00a884]/10 text-[#00a884]' : 'border-gray-200 dark:border-gray-700 text-gray-500'}`}
-                    >
-                      🎯 Todos ({clients.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSendAllAudience('PENDIENTE')}
-                      className={`p-2 rounded-xl border text-center text-xs font-bold transition-all cursor-pointer ${sendAllAudience === 'PENDIENTE' ? 'border-amber-500 bg-amber-500/10 text-amber-600' : 'border-gray-200 dark:border-gray-700 text-gray-500'}`}
-                    >
-                      🟡 Pendientes ({clients.filter(c => (c.estado || 'PENDIENTE') === 'PENDIENTE').length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSendAllAudience('VENCIDO')}
-                      className={`p-2 rounded-xl border text-center text-xs font-bold transition-all cursor-pointer ${sendAllAudience === 'VENCIDO' ? 'border-red-500 bg-red-500/10 text-red-600' : 'border-gray-200 dark:border-gray-700 text-gray-500'}`}
-                    >
-                      🔴 Vencidos ({clients.filter(c => c.estado === 'VENCIDO').length})
-                    </button>
-                  </div>
-                </div>
-
-                {/* Mensaje a enviar */}
-                <div>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <label className="text-[11px] font-bold" style={{ color: "var(--wa-muted)" }}>
-                      Mensaje a Enviar:
-                    </label>
-                    <span className="text-[10px] text-gray-400">
-                      Usa {"{{nombre}}"} para personalizar
-                    </span>
-                  </div>
-                  <textarea
-                    rows={3}
-                    value={sendAllMessage}
-                    onChange={(e) => setSendAllMessage(e.target.value)}
-                    className="wa-textarea text-xs w-full"
-                    placeholder="Escribe el mensaje..."
-                  />
-                </div>
-
-                {/* Vista previa compacta */}
-                <div className="p-2.5 rounded-xl border text-xs" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
-                  <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Vista previa ({clients[0]?.nombre || 'Cliente'}):</span>
-                  <p className="italic text-xs line-clamp-2" style={{ color: "var(--wa-text)" }}>
-                    "{sendAllMessage
-                      .replace(/{{nombre}}/g, clients[0]?.nombre || 'Cliente')
-                      .replace(/{{nota}}/g, clients[0]?.nota || '')
-                      .replace(/{{monto}}/g, 'su saldo pendiente')}"
-                  </p>
-                </div>
-
-                {/* Toggle Opcional de Programación */}
-                <div className="flex items-center justify-between text-xs pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setSendAllMode(prev => prev === 'NOW' ? 'SCHEDULE' : 'NOW')}
-                    className="text-xs text-gray-500 hover:text-emerald-600 flex items-center gap-1 cursor-pointer font-medium"
-                  >
-                    <Calendar size={13} />
-                    <span>{sendAllMode === 'SCHEDULE' ? 'Cambiar a Enviar Ahora' : '¿Programar para otra fecha?'}</span>
-                  </button>
-
-                  {sendAllMode === 'SCHEDULE' && (
-                    <input
-                      type="datetime-local"
-                      value={sendAllScheduleTime}
-                      onChange={(e) => setSendAllScheduleTime(e.target.value)}
-                      className="wa-textarea text-xs py-1 px-2"
-                    />
-                  )}
-                </div>
-
-                {/* Botones de Acción */}
-                <div className="flex items-center justify-between gap-3 pt-2 border-t" style={{ borderColor: "var(--wa-border)" }}>
-                  <button
-                    type="button"
-                    onClick={() => setSendAllModalOpen(false)}
-                    className="btn-wa-secondary text-xs py-2 px-4 cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleConfirmSendAll}
-                    disabled={
-                      sendAllSending ||
-                      !sendAllMessage.trim() ||
-                      (sendAllAudience === 'ALL' ? clients.length === 0 : clients.filter(c => (c.estado || 'PENDIENTE') === sendAllAudience).length === 0)
-                    }
-                    className="btn-wa-primary text-xs py-2.5 px-6 font-bold cursor-pointer shadow-md flex items-center gap-2"
-                    style={{ background: "#00a884" }}
-                  >
-                    {sendAllSending ? (
-                      <>
-                        <Loader2 size={15} className="animate-spin" />
-                        <span>Enviando...</span>
-                      </>
-                    ) : sendAllMode === 'SCHEDULE' ? (
-                      <>
-                        <Calendar size={15} />
-                        <span>Programar Envío ({
-                          sendAllAudience === 'ALL'
-                            ? clients.length
-                            : clients.filter(c => (c.estado || 'PENDIENTE') === sendAllAudience).length
-                        })</span>
-                      </>
-                    ) : (
-                      <>
-                        <Send size={15} />
-                        <span>🚀 Enviar a Todos ({
-                          sendAllAudience === 'ALL'
-                            ? clients.length
-                            : clients.filter(c => (c.estado || 'PENDIENTE') === sendAllAudience).length
-                        })</span>
-                      </>
-                    )}
                   </button>
                 </div>
               </div>
