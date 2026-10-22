@@ -16,6 +16,26 @@ import './Dashboard.css';
 const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? 'https://bot-whatsapp-mensajes-automatico.onrender.com' : 'http://localhost:3000');
 axios.defaults.withCredentials = true;
 
+function getCookie(name) {
+  if (typeof document === 'undefined') return '';
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+axios.interceptors.request.use((config) => {
+  const method = (config.method || 'get').toLowerCase();
+  if (method !== 'get' && method !== 'head' && method !== 'options') {
+    const csrfToken = getCookie('csrfToken');
+    if (csrfToken) {
+      config.headers = {
+        ...config.headers,
+        'X-CSRF-Token': csrfToken
+      };
+    }
+  }
+  return config;
+});
+
 const PLANTILLAS = [
   { 
     id: 'rec',
@@ -94,6 +114,18 @@ function normalizeBackups(value) {
   return value
     .filter(backup => backup && typeof backup === 'object' && !Array.isArray(backup))
     .filter(backup => typeof backup.folder === 'string');
+}
+
+function normalizeQrValue(value) {
+  if (typeof value !== 'string') return '';
+
+  const trimmed = value.trim();
+  if (!trimmed || !trimmed.startsWith('data:image/')) return '';
+
+  const [header, payload] = trimmed.split(',');
+  if (!header || !payload || !header.includes(';base64')) return '';
+
+  return trimmed;
 }
 
 export default function Dashboard() {
@@ -240,6 +272,16 @@ export default function Dashboard() {
       console.error("Error decoding token", e);
     }
 
+    const refreshCsrfToken = async () => {
+      try {
+        await axios.get(`${API_BASE}/api/csrf-token`, { withCredentials: true });
+      } catch (_) {
+        // La cookie se vuelve a emitir desde la respuesta del backend si la sesión sigue siendo válida.
+      }
+    };
+
+    refreshCsrfToken();
+
     socketRef.current = io(API_BASE, { auth: { token } });
     
     socketRef.current.on('connect_error', (err) => {
@@ -250,7 +292,10 @@ export default function Dashboard() {
     });
 
     socketRef.current.on('status', s => setStatus(s));
-    socketRef.current.on('qr', q => setQr(q));
+    socketRef.current.on('qr', q => {
+      const nextQr = normalizeQrValue(q);
+      setQr(nextQr);
+    });
     socketRef.current.on('log', log => {
       const logText = typeof log === 'string' ? log : String(log ?? 'Evento recibido');
       setLogs(p => [...p, { 
@@ -309,11 +354,14 @@ export default function Dashboard() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data) {
-        setStatus(res.data.status);
-        if (res.data.status === 'CONNECTED' || res.data.status === 'AUTHENTICATED' || !res.data.qr) {
+        const nextStatus = typeof res.data.status === 'string' ? res.data.status : 'DISCONNECTED';
+        const nextQr = normalizeQrValue(res.data.qr);
+
+        setStatus(nextStatus);
+        if (nextStatus === 'CONNECTED' || nextStatus === 'AUTHENTICATED' || !nextQr) {
           setQr('');
         } else {
-          setQr(res.data.qr);
+          setQr(nextQr);
         }
       }
     } catch (err) {
@@ -337,7 +385,8 @@ export default function Dashboard() {
         setQr('');
         showToast('info', 'Código escaneado. Sincronizando mensajes...');
       } else {
-        if (res.data?.qr) setQr(res.data.qr);
+        const nextQr = normalizeQrValue(res.data?.qr);
+        if (nextQr) setQr(nextQr);
         if (res.data?.status) setStatus(res.data.status);
         showToast('warn', 'Aún no se ha detectado el escaneo. Por favor escanea el código QR con tu celular.');
       }

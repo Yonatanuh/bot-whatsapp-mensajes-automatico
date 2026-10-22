@@ -16,9 +16,9 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const { Client, LocalAuth } = require("whatsapp-web.js");
-const qrcode = require("qrcode");
 const jwt = require("jsonwebtoken");
 const { enviarEmailRegistro } = require("./services/emailService");
+const { generateQrDataUrl, normalizeQrDataUrl } = require("./services/qrService");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
@@ -281,12 +281,29 @@ function loadTemplatesForUser(userEmail) {
 }
 
 // Configuración de Seguridad y Autenticación con valores seguros por defecto
-const SECRET_KEY = (process.env.JWT_SECRET || "").trim() || crypto.randomBytes(32).toString("hex");
-if (!process.env.JWT_SECRET && process.env.NODE_ENV !== "production") {
-  console.warn("⚠️ [AUTH] JWT_SECRET no configurado; los tokens de desarrollo dejarán de ser válidos al reiniciar.");
+if (!process.env.JWT_SECRET || !process.env.JWT_SECRET.trim()) {
+  process.env.JWT_SECRET = crypto.randomBytes(32).toString("hex");
+  if (process.env.NODE_ENV === "production") {
+    console.warn("⚠️ [SEGURIDAD] JWT_SECRET no configurado en el entorno de producción; se generó una clave temporal segura en memoria.");
+  } else {
+    console.warn("⚠️ [AUTH] JWT_SECRET no configurado; se generó un valor temporal solo para desarrollo.");
+  }
 }
+if (!process.env.ADMIN_PASS || !process.env.ADMIN_PASS.trim()) {
+  process.env.ADMIN_PASS = "admin123";
+  if (process.env.NODE_ENV === "production") {
+    console.warn("⚠️ [SEGURIDAD] ADMIN_PASS no configurado en producción; usando valor por defecto.");
+  } else {
+    console.warn("⚠️ [AUTH] ADMIN_PASS no configurado; usando valor temporal solo para desarrollo.");
+  }
+}
+if (process.env.NODE_ENV === "production" && process.env.ADMIN_PASS && process.env.ADMIN_PASS.trim() === "admin123") {
+  console.warn("⚠️ [SEGURIDAD CRÍTICA] ADMIN_PASS conserva la contraseña por defecto en producción. Se recomienda configurar una contraseña robusta en Render.");
+}
+
+const SECRET_KEY = process.env.JWT_SECRET.trim();
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const ADMIN_PASS = process.env.ADMIN_PASS || "admin123";
+const ADMIN_PASS = process.env.ADMIN_PASS.trim();
 
 const app = express();
 const server = http.createServer(app);
@@ -306,6 +323,12 @@ app.use(helmet({
 // 3. Parser de Cookies y JSON con límites de tamaño
 app.use(cookieParser());
 app.use(express.json({ limit: "2mb" }));
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+  next();
+});
 
 // 4. Rate Limiting Multi-Nivel (Protección DoS y Fuerza Bruta)
 const apiLimiter = rateLimit({
@@ -452,22 +475,67 @@ function safeCompare(a, b) {
   if (typeof a !== "string" || typeof b !== "string") return false;
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
-  }
+  if (bufA.length !== bufB.length) return false;
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-function setAuthCookie(res, token) {
+function getCookieOptions(options = {}) {
   const isProd = process.env.NODE_ENV === "production";
-  res.cookie("token", token, {
-    httpOnly: true,
+  return {
+    httpOnly: options.httpOnly !== undefined ? options.httpOnly : true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
-    maxAge: 24 * 60 * 60 * 1000
-  });
+    maxAge: 24 * 60 * 60 * 1000,
+    path: "/"
+  };
 }
+
+function setAuthCookie(res, token) {
+  const cookieOptions = getCookieOptions();
+  const csrfCookieOptions = getCookieOptions({ httpOnly: false });
+  const csrfToken = crypto.createHash("sha256").update(`${token}:${SECRET_KEY}`).digest("hex");
+  res.cookie("token", token, cookieOptions);
+  res.cookie("csrfToken", csrfToken, csrfCookieOptions);
+}
+
+function readCsrfToken(req) {
+  if (!req || !req.headers) return "";
+  const csrfHeader = req.headers["x-csrf-token"] || req.headers["x-xsrf-token"];
+  return typeof csrfHeader === "string" ? csrfHeader : "";
+}
+
+function csrfProtection(req, res, next) {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+    return next();
+  }
+
+  const authHeader = req.headers.authorization;
+  if (authHeader && /^Bearer\s+/i.test(authHeader)) {
+    return next();
+  }
+
+  const cookieToken = req.cookies && req.cookies.token ? req.cookies.token : "";
+  const csrfCookie = req.cookies && req.cookies.csrfToken ? req.cookies.csrfToken : "";
+  const csrfHeader = readCsrfToken(req);
+
+  if (!cookieToken && !csrfCookie) {
+    return next();
+  }
+
+  if (!csrfCookie || !csrfHeader || !safeCompare(csrfCookie, csrfHeader)) {
+    return res.status(403).json({ error: "Token CSRF inválido o faltante." });
+  }
+
+  next();
+}
+
+app.use(csrfProtection);
+
+app.get("/api/csrf-token", authenticateToken, (req, res) => {
+  const csrfToken = crypto.createHash("sha256").update(`${req.user.email}:${SECRET_KEY}:${Date.now()}`).digest("hex");
+  res.cookie("csrfToken", csrfToken, getCookieOptions({ httpOnly: false }));
+  return res.json({ csrfToken });
+});
 
 // ── SISTEMA DE AUTENTICACIÓN PROTEGIDO ──
 
@@ -701,12 +769,8 @@ app.post("/api/login", (req, res) => {
 
 // Endpoint seguro para cerrar sesión y limpiar cookies
 app.post("/api/logout", (req, res) => {
-  const isProd = process.env.NODE_ENV === "production";
-  res.clearCookie("token", {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? "none" : "lax"
-  });
+  res.clearCookie("token", getCookieOptions());
+  res.clearCookie("csrfToken", getCookieOptions({ httpOnly: false }));
   return res.json({ success: true, message: "Sesión cerrada exitosamente." });
 });
 
@@ -734,6 +798,15 @@ const authenticateToken = (req, res, next) => {
 const authorizeAdmin = (req, res, next) => {
   if (!req.user || req.user.role !== "ADMIN") {
     return res.status(403).json({ error: "Acceso denegado. Se requieren privilegios de Administrador." });
+  }
+  next();
+};
+
+const authorizeCorporateGateway = (req, res, next) => {
+  if (!req.user || req.user.role !== "ADMIN") {
+    return res.status(403).json({
+      error: "Acceso denegado. La pasarela corporativa de WhatsApp solo está disponible para administradores."
+    });
   }
   next();
 };
@@ -941,12 +1014,17 @@ async function getOrCreateUserSession(userEmail) {
 
   client.on("qr", async (qr) => {
     try {
+      const nextQr = await generateQrDataUrl(qr);
       sessionData.status = "QR_READY";
-      sessionData.qr = await qrcode.toDataURL(qr);
+      sessionData.qr = nextQr;
       io.emit("status", "QR_READY");
-      io.emit("qr", sessionData.qr);
+      io.emit("qr", nextQr);
       console.log(`📱 [QR] Código QR generado para la pasarela de WhatsApp`);
     } catch (qrErr) {
+      sessionData.status = "DISCONNECTED";
+      sessionData.qr = "";
+      io.emit("status", "DISCONNECTED");
+      io.emit("qr", "");
       console.error(`⚠️ [QR] Error convirtiendo código QR:`, qrErr.message);
     }
   });
@@ -1104,6 +1182,11 @@ io.on("connection", async (socket) => {
   if (!userEmail) return;
 
   socket.join(userEmail);
+
+  if (socket.user.role !== "ADMIN") {
+    return;
+  }
+
   socket.join(CORPORATE_GATEWAY_KEY);
 
   try {
@@ -1207,7 +1290,7 @@ async function ensureSessionConnected(session) {
 }
 
 // Endpoint Protegido para enviar mensajes (Sesión y Logs aislados por cuenta)
-app.post("/api/send", authenticateToken, async (req, res) => {
+app.post("/api/send", authenticateToken, authorizeCorporateGateway, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
   const session = await getOrCreateUserSession(userEmail);
 
@@ -1280,7 +1363,7 @@ app.post("/api/send", authenticateToken, async (req, res) => {
 });
 
 // Envío Automático a contactos de cobro del usuario con reemplazo de variables
-app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
+app.post("/api/send-auto-collections", authenticateToken, authorizeCorporateGateway, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
   const session = await getOrCreateUserSession(userEmail);
 
@@ -1374,21 +1457,24 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
 });
 
 // Obtener estado actual de la pasarela de WhatsApp
-app.get("/api/status", authenticateToken, async (req, res) => {
+app.get("/api/status", authenticateToken, authorizeCorporateGateway, async (req, res) => {
   let session = sessions.get(CORPORATE_GATEWAY_KEY);
   if (!session) {
     session = await getOrCreateUserSession();
   } else if (session.status === "AUTHENTICATED") {
     await ensureSessionConnected(session);
   }
+  const nextQr = session && session.qr ? normalizeQrDataUrl(session.qr) : "";
+  if (session) session.qr = nextQr;
+
   res.json({
     status: session ? session.status : "DISCONNECTED",
-    qr: session && session.qr ? session.qr : ""
+    qr: nextQr
   });
 });
 
 // Endpoint para verificar y forzar sincronización del estado de WhatsApp
-app.post("/api/whatsapp/check-status", authenticateToken, async (req, res) => {
+app.post("/api/whatsapp/check-status", authenticateToken, authorizeCorporateGateway, async (req, res) => {
   const session = sessions.get(CORPORATE_GATEWAY_KEY);
   if (!session || !session.client) {
     return res.json({ status: "DISCONNECTED", message: "La pasarela no está iniciada." });
@@ -1399,9 +1485,12 @@ app.post("/api/whatsapp/check-status", authenticateToken, async (req, res) => {
     return res.json({ status: "CONNECTED", message: "WhatsApp está vinculado y listo." });
   }
 
+  const nextQr = session && session.qr ? normalizeQrDataUrl(session.qr) : "";
+  if (session) session.qr = nextQr;
+
   return res.json({
     status: session.status,
-    qr: session.qr,
+    qr: nextQr,
     message: session.status === "AUTHENTICATED"
       ? "Código escaneado. Sincronizando chats..."
       : "Aún no se detecta la vinculación activa."
@@ -1409,7 +1498,7 @@ app.post("/api/whatsapp/check-status", authenticateToken, async (req, res) => {
 });
 
 // Desvincular WhatsApp / Generar nuevo código QR para la pasarela corporativa
-app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
+app.post("/api/whatsapp/disconnect", authenticateToken, authorizeCorporateGateway, async (req, res) => {
   const session = sessions.get(CORPORATE_GATEWAY_KEY);
   if (session && session.status === "INITIALIZING") {
     return res.json({
