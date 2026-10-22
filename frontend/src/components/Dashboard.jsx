@@ -1894,7 +1894,7 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => fileInputRef.current.click()}
-                      className="btn-wa-secondary w-full justify-center"
+                      className="btn-wa-secondary w-full justify-center cursor-pointer"
                     >
                       <Upload size={13} style={{ color: "var(--wa-button)" }} />
                       <span>Cargar CSV / TXT</span>
@@ -1903,13 +1903,24 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => setNumbers('')}
-                      className="btn-wa-secondary w-full justify-center"
+                      className="btn-wa-secondary w-full justify-center cursor-pointer"
                       style={{ color: "var(--wa-error)" }}
                     >
                       <Trash2 size={13} />
                       <span>Limpiar</span>
                     </button>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSyncClientsToMassSend}
+                    disabled={clients.length === 0}
+                    className="btn-wa-primary w-full justify-center text-xs py-2 shadow-xs cursor-pointer flex items-center gap-2"
+                    title={`Cargar los ${clients.length} contactos de tu directorio a la lista de destinatarios`}
+                  >
+                    <Users size={14} />
+                    <span>Cargar Todos los Clientes Agregados ({clients.length})</span>
+                  </button>
                 </div>
 
                 {/* == ESTADO DEL CÓDIGO QR / VINCULACIÓN == */}
@@ -2594,30 +2605,30 @@ export default function Dashboard() {
                           type="button"
                           onClick={handleAutoCollection}
                           disabled={clients.length === 0}
-                          className="btn-wa-primary text-xs py-2 px-3.5 cursor-pointer"
-                          title="Enviar mensaje automático a todo el directorio usando la plantilla"
+                          className="btn-wa-primary text-xs py-2 px-3.5 cursor-pointer flex items-center gap-1.5 shadow-sm"
+                          title="Enviar mensaje automático a todos los clientes del directorio usando la plantilla"
                           style={{ background: "#f59e0b" }}
                         >
-                          <Zap size={13} />
-                          <span>Cobro Automático</span>
+                          <Zap size={14} />
+                          <span className="font-bold">Enviar a Todos ({clients.length})</span>
                         </button>
 
                         <button
                           type="button"
-                          onClick={handleClearAllClients}
+                          onClick={handleSyncClientsToMassSend}
                           disabled={clients.length === 0}
-                          className="btn-wa-secondary text-xs py-2 px-3.5 hover:bg-red-500/10 text-red-500 border-red-500/30 cursor-pointer"
-                          title="Vaciar y eliminar todos los clientes del directorio"
+                          className="btn-wa-primary text-xs py-2 px-3.5 cursor-pointer flex items-center gap-1.5 shadow-sm"
+                          title="Cargar todos los números a la consola de envíos masivos para personalizar el mensaje antes de transmitir"
                         >
-                          <Trash2 size={13} />
-                          <span>Vaciar Directorio</span>
+                          <Send size={13} />
+                          <span>Cargar Todos en Consola</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={handleExportClients}
                           disabled={clients.length === 0}
-                          className="btn-wa-secondary text-xs py-2 px-3.5 cursor-pointer"
+                          className="btn-wa-secondary text-xs py-2 px-3 cursor-pointer"
                           title="Descargar copia de seguridad de clientes en JSON"
                         >
                           <Download size={13} />
@@ -2634,7 +2645,7 @@ export default function Dashboard() {
                         <button
                           type="button"
                           onClick={() => fileInputClientsRef.current && fileInputClientsRef.current.click()}
-                          className="btn-wa-secondary text-xs py-2 px-3.5 cursor-pointer"
+                          className="btn-wa-secondary text-xs py-2 px-3 cursor-pointer"
                           title="Subir / Importar archivo de clientes JSON a tu directorio"
                         >
                           <Upload size={13} />
@@ -2643,13 +2654,13 @@ export default function Dashboard() {
 
                         <button
                           type="button"
-                          onClick={handleSyncClientsToMassSend}
+                          onClick={handleClearAllClients}
                           disabled={clients.length === 0}
-                          className="btn-wa-primary text-xs py-2 px-3.5 cursor-pointer"
-                          title="Cargar todos los números a la consola de envíos masivos"
+                          className="btn-wa-secondary text-xs py-2 px-3 hover:bg-red-500/10 text-red-500 border-red-500/30 cursor-pointer"
+                          title="Vaciar y eliminar todos los clientes del directorio"
                         >
-                          <Send size={13} />
-                          <span>Exportar a Consola</span>
+                          <Trash2 size={13} />
+                          <span>Vaciar</span>
                         </button>
                       </div>
                     </div>
