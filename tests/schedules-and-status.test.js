@@ -64,3 +64,4 @@ test('dbService handles schedules creation, retrieval, and deletion', async () =
   const afterDelete = await dbService.getSchedulesForUser(testEmail);
   assert.ok(!afterDelete.some(s => s.id === newSchedule.id));
 });
+
