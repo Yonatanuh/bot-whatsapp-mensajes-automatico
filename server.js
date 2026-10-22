@@ -492,44 +492,8 @@ function getCookieOptions(options = {}) {
 
 function setAuthCookie(res, token) {
   const cookieOptions = getCookieOptions();
-  const csrfCookieOptions = getCookieOptions({ httpOnly: false });
-  const csrfToken = crypto.createHash("sha256").update(`${token}:${SECRET_KEY}`).digest("hex");
   res.cookie("token", token, cookieOptions);
-  res.cookie("csrfToken", csrfToken, csrfCookieOptions);
 }
-
-function readCsrfToken(req) {
-  if (!req || !req.headers) return "";
-  const csrfHeader = req.headers["x-csrf-token"] || req.headers["x-xsrf-token"];
-  return typeof csrfHeader === "string" ? csrfHeader : "";
-}
-
-function csrfProtection(req, res, next) {
-  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
-    return next();
-  }
-
-  const authHeader = req.headers.authorization;
-  if (authHeader && /^Bearer\s+/i.test(authHeader)) {
-    return next();
-  }
-
-  const cookieToken = req.cookies && req.cookies.token ? req.cookies.token : "";
-  const csrfCookie = req.cookies && req.cookies.csrfToken ? req.cookies.csrfToken : "";
-  const csrfHeader = readCsrfToken(req);
-
-  if (!cookieToken && !csrfCookie) {
-    return next();
-  }
-
-  if (!csrfCookie || !csrfHeader || !safeCompare(csrfCookie, csrfHeader)) {
-    return res.status(403).json({ error: "Token CSRF inválido o faltante." });
-  }
-
-  next();
-}
-
-app.use(csrfProtection);
 
 // ── SISTEMA DE AUTENTICACIÓN PROTEGIDO ──
 
@@ -764,7 +728,6 @@ app.post("/api/login", (req, res) => {
 // Endpoint seguro para cerrar sesión y limpiar cookies
 app.post("/api/logout", (req, res) => {
   res.clearCookie("token", getCookieOptions());
-  res.clearCookie("csrfToken", getCookieOptions({ httpOnly: false }));
   return res.json({ success: true, message: "Sesión cerrada exitosamente." });
 });
 
@@ -804,12 +767,6 @@ const authorizeCorporateGateway = (req, res, next) => {
   }
   next();
 };
-
-app.get("/api/csrf-token", authenticateToken, (req, res) => {
-  const csrfToken = crypto.createHash("sha256").update(`${req.user.email}:${SECRET_KEY}:${Date.now()}`).digest("hex");
-  res.cookie("csrfToken", csrfToken, getCookieOptions({ httpOnly: false }));
-  return res.json({ csrfToken });
-});
 
 // Middleware para proteger WebSockets (acepta auth token o cookie)
 io.use((socket, next) => {

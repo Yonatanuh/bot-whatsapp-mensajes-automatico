@@ -6,26 +6,6 @@ import "./Login.css";
 const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? 'https://bot-whatsapp-mensajes-automatico.onrender.com' : 'http://localhost:3000');
 axios.defaults.withCredentials = true;
 
-function getCookie(name) {
-  if (typeof document === 'undefined') return '';
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : '';
-}
-
-axios.interceptors.request.use((config) => {
-  const method = (config.method || 'get').toLowerCase();
-  if (method !== 'get' && method !== 'head' && method !== 'options') {
-    const csrfToken = getCookie('csrfToken');
-    if (csrfToken) {
-      config.headers = {
-        ...config.headers,
-        'X-CSRF-Token': csrfToken
-      };
-    }
-  }
-  return config;
-});
-
 export default function Login() {
   const [mode, setMode] = useState("LOGIN"); // LOGIN, REGISTER, VERIFY
   const [email, setEmail] = useState("");
@@ -115,11 +95,6 @@ export default function Login() {
 
       if (res.data?.token) {
         localStorage.setItem("token", res.data.token);
-        try {
-          await axios.get(`${API_BASE}/api/csrf-token`, { withCredentials: true });
-        } catch {
-          // No bloquea el flujo por un problema temporal al refrescar el token CSRF.
-        }
         if (remember) localStorage.setItem("remembered_user", cleanEmail);
         navigate("/dashboard");
       }
@@ -146,11 +121,6 @@ export default function Login() {
 
       if (res.data?.token) {
         localStorage.setItem("token", res.data.token);
-        try {
-          await axios.get(`${API_BASE}/api/csrf-token`, { withCredentials: true });
-        } catch {
-          // No bloquea el flujo por un problema temporal al refrescar el token CSRF.
-        }
         navigate("/dashboard");
       } else {
         setApiSuccess(res.data.message || "Código enviado a tu correo Gmail.");
@@ -195,11 +165,6 @@ export default function Login() {
 
       if (res.data?.token) {
         localStorage.setItem("token", res.data.token);
-        try {
-          await axios.get(`${API_BASE}/api/csrf-token`, { withCredentials: true });
-        } catch {
-          // No bloquea el flujo por un problema temporal al refrescar el token CSRF.
-        }
         navigate("/dashboard");
       }
     } catch (err) {

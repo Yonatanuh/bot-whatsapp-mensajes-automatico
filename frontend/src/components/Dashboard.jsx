@@ -16,26 +16,6 @@ import './Dashboard.css';
 const API_BASE = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? 'https://bot-whatsapp-mensajes-automatico.onrender.com' : 'http://localhost:3000');
 axios.defaults.withCredentials = true;
 
-function getCookie(name) {
-  if (typeof document === 'undefined') return '';
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : '';
-}
-
-axios.interceptors.request.use((config) => {
-  const method = (config.method || 'get').toLowerCase();
-  if (method !== 'get' && method !== 'head' && method !== 'options') {
-    const csrfToken = getCookie('csrfToken');
-    if (csrfToken) {
-      config.headers = {
-        ...config.headers,
-        'X-CSRF-Token': csrfToken
-      };
-    }
-  }
-  return config;
-});
-
 const PLANTILLAS = [
   { 
     id: 'rec',
@@ -271,16 +251,6 @@ export default function Dashboard() {
     } catch (e) {
       console.error("Error decoding token", e);
     }
-
-    const refreshCsrfToken = async () => {
-      try {
-        await axios.get(`${API_BASE}/api/csrf-token`, { withCredentials: true });
-      } catch (_) {
-        // La cookie se vuelve a emitir desde la respuesta del backend si la sesión sigue siendo válida.
-      }
-    };
-
-    refreshCsrfToken();
 
     socketRef.current = io(API_BASE, { auth: { token } });
     
