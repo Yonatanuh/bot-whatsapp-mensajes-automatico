@@ -531,12 +531,6 @@ function csrfProtection(req, res, next) {
 
 app.use(csrfProtection);
 
-app.get("/api/csrf-token", authenticateToken, (req, res) => {
-  const csrfToken = crypto.createHash("sha256").update(`${req.user.email}:${SECRET_KEY}:${Date.now()}`).digest("hex");
-  res.cookie("csrfToken", csrfToken, getCookieOptions({ httpOnly: false }));
-  return res.json({ csrfToken });
-});
-
 // ── SISTEMA DE AUTENTICACIÓN PROTEGIDO ──
 
 app.post("/api/register", async (req, res) => {
@@ -810,6 +804,12 @@ const authorizeCorporateGateway = (req, res, next) => {
   }
   next();
 };
+
+app.get("/api/csrf-token", authenticateToken, (req, res) => {
+  const csrfToken = crypto.createHash("sha256").update(`${req.user.email}:${SECRET_KEY}:${Date.now()}`).digest("hex");
+  res.cookie("csrfToken", csrfToken, getCookieOptions({ httpOnly: false }));
+  return res.json({ csrfToken });
+});
 
 // Middleware para proteger WebSockets (acepta auth token o cookie)
 io.use((socket, next) => {
