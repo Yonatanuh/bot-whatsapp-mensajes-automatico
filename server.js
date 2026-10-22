@@ -759,15 +759,6 @@ const authorizeAdmin = (req, res, next) => {
   next();
 };
 
-const authorizeCorporateGateway = (req, res, next) => {
-  if (!req.user || req.user.role !== "ADMIN") {
-    return res.status(403).json({
-      error: "Acceso denegado. La pasarela corporativa de WhatsApp solo está disponible para administradores."
-    });
-  }
-  next();
-};
-
 // Middleware para proteger WebSockets (acepta auth token o cookie)
 io.use((socket, next) => {
   let token = socket.handshake.auth ? socket.handshake.auth.token : null;
@@ -1247,7 +1238,7 @@ async function ensureSessionConnected(session) {
 }
 
 // Endpoint Protegido para enviar mensajes (Sesión y Logs aislados por cuenta)
-app.post("/api/send", authenticateToken, authorizeCorporateGateway, async (req, res) => {
+app.post("/api/send", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
   const session = await getOrCreateUserSession(userEmail);
 
@@ -1320,7 +1311,7 @@ app.post("/api/send", authenticateToken, authorizeCorporateGateway, async (req, 
 });
 
 // Envío Automático a contactos de cobro del usuario con reemplazo de variables
-app.post("/api/send-auto-collections", authenticateToken, authorizeCorporateGateway, async (req, res) => {
+app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
   const userEmail = req.user.email.toLowerCase();
   const session = await getOrCreateUserSession(userEmail);
 
@@ -1414,7 +1405,7 @@ app.post("/api/send-auto-collections", authenticateToken, authorizeCorporateGate
 });
 
 // Obtener estado actual de la pasarela de WhatsApp
-app.get("/api/status", authenticateToken, authorizeCorporateGateway, async (req, res) => {
+app.get("/api/status", authenticateToken, async (req, res) => {
   let session = sessions.get(CORPORATE_GATEWAY_KEY);
   if (!session) {
     session = await getOrCreateUserSession();
@@ -1431,7 +1422,7 @@ app.get("/api/status", authenticateToken, authorizeCorporateGateway, async (req,
 });
 
 // Endpoint para verificar y forzar sincronización del estado de WhatsApp
-app.post("/api/whatsapp/check-status", authenticateToken, authorizeCorporateGateway, async (req, res) => {
+app.post("/api/whatsapp/check-status", authenticateToken, async (req, res) => {
   const session = sessions.get(CORPORATE_GATEWAY_KEY);
   if (!session || !session.client) {
     return res.json({ status: "DISCONNECTED", message: "La pasarela no está iniciada." });
@@ -1455,7 +1446,7 @@ app.post("/api/whatsapp/check-status", authenticateToken, authorizeCorporateGate
 });
 
 // Desvincular WhatsApp / Generar nuevo código QR para la pasarela corporativa
-app.post("/api/whatsapp/disconnect", authenticateToken, authorizeCorporateGateway, async (req, res) => {
+app.post("/api/whatsapp/disconnect", authenticateToken, async (req, res) => {
   const session = sessions.get(CORPORATE_GATEWAY_KEY);
   if (session && session.status === "INITIALIZING") {
     return res.json({

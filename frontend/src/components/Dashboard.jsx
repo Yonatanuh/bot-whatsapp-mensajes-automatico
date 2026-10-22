@@ -153,6 +153,11 @@ export default function Dashboard() {
   const [clientSearch, setClientSearch] = useState('');
   const [clientViewMode, setClientViewMode] = useState('directory'); // 'directory' | 'bulk'
 
+  // Estados para Envío Directo a un Cliente específico (Modal y Acción)
+  const [directSendClient, setDirectSendClient] = useState(null);
+  const [directSendMessage, setDirectSendMessage] = useState('');
+  const [directSending, setDirectSending] = useState(false);
+
   // Estados para Plantillas
   const [plantillas, setPlantillas] = useState([]);
 
@@ -907,6 +912,50 @@ export default function Dashboard() {
     setActiveTab('dashboard');
   };
 
+  const handleOpenDirectSend = (client) => {
+    setDirectSendClient(client);
+    const defaultMsg = message && message.trim()
+      ? message.replace(/{{nombre}}/g, client.nombre).replace(/{{nota}}/g, client.nota || "")
+      : `Estimado/a ${client.nombre}, le recordamos cordialmente que su cuenta presenta saldo pendiente. Por favor responda con su comprobante para actualizar su estado a la brevedad.`;
+    setDirectSendMessage(defaultMsg);
+  };
+
+  const handleSendDirectMessage = async () => {
+    if (!directSendClient || !directSendMessage.trim() || directSending) return;
+    if (status !== 'CONNECTED') {
+      showToast('error', 'Tu WhatsApp no está vinculado. Por favor escanea tu código QR en la Consola de Envío.');
+      return;
+    }
+    setDirectSending(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${API_BASE}/api/send`, {
+        numbers: [directSendClient.numero],
+        message: directSendMessage.trim(),
+        delay: 1
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      showToast('success', `¡Mensaje enviado con éxito a ${directSendClient.nombre}!`);
+      setDirectSendClient(null);
+    } catch (err) {
+      showToast('error', `Error al enviar mensaje: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setDirectSending(false);
+    }
+  };
+
+  const handleLoadClientToConsole = (client) => {
+    setNumbers(client.numero);
+    const personalizedMsg = `Estimado/a ${client.nombre}, le recordamos cordialmente que su cuenta presenta saldo pendiente. Por favor responda con su comprobante para actualizar su estado.`;
+    if (!message || !message.trim()) {
+      setMessage(personalizedMsg);
+    }
+    setActiveTab('dashboard');
+    showToast('success', `Cliente ${client.nombre} (+${client.numero}) cargado en la Consola de Envíos.`);
+    if (directSendClient) setDirectSendClient(null);
+  };
+
   const handleTestClientDirect = (client) => {
     setTestNumber(client.numero);
     setTestMessage(`Estimado/a ${client.nombre}, le recordamos cordialmente que su cuenta presenta saldo pendiente.`);
@@ -1104,6 +1153,143 @@ export default function Dashboard() {
           {toast.tipo === 'info' && <Zap size={16} />}
           {toast.tipo === 'warn' && <AlertCircle size={16} />}
           <span>{toast.mensaje}</span>
+        </div>
+      )}
+
+      {/* Modal de Envío Directo de Mensaje a Cliente */}
+      {directSendClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div 
+            className="w-full max-w-lg rounded-2xl border shadow-2xl p-6 space-y-4 relative"
+            style={{ background: "var(--wa-card)", borderColor: "var(--wa-border)", color: "var(--wa-text)" }}
+          >
+            {/* Cabecera del Modal */}
+            <div className="flex items-start justify-between pb-3 border-b" style={{ borderColor: "var(--wa-border)" }}>
+              <div className="flex items-center gap-3">
+                <div 
+                  className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white shrink-0 shadow"
+                  style={{ background: "linear-gradient(135deg, var(--wa-dark), var(--wa-button))" }}
+                >
+                  {directSendClient.nombre ? directSendClient.nombre.slice(0, 2).toUpperCase() : 'CL'}
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold block" style={{ color: "var(--wa-text)" }}>
+                    Enviar Mensaje a {directSendClient.nombre}
+                  </h3>
+                  <span className="text-xs font-medium block mt-0.5" style={{ color: "var(--wa-muted)" }}>
+                    +{directSendClient.numero} {directSendClient.nota ? `• ${directSendClient.nota}` : ''}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDirectSendClient(null)}
+                className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                style={{ color: "var(--wa-muted)" }}
+                title="Cerrar ventana"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Estado de WhatsApp */}
+            <div className="flex items-center justify-between text-xs px-3 py-2 rounded-xl" style={{ background: "var(--wa-input-bg)" }}>
+              <span className="font-semibold" style={{ color: "var(--wa-muted)" }}>Estado de WhatsApp:</span>
+              <span className="font-bold flex items-center gap-1.5" style={{ color: status === 'CONNECTED' ? "var(--wa-green)" : "var(--wa-error)" }}>
+                <span className="w-2 h-2 rounded-full" style={{ background: status === 'CONNECTED' ? "var(--wa-green)" : "var(--wa-error)" }} />
+                {status === 'CONNECTED' ? 'WhatsApp Vinculado' : 'WhatsApp Desconectado'}
+              </span>
+            </div>
+
+            {/* Plantillas Rápidas para el cliente */}
+            <div>
+              <span className="text-[11px] font-bold block mb-1.5" style={{ color: "var(--wa-muted)" }}>
+                Plantillas sugeridas:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setDirectSendMessage(`Estimado/a ${directSendClient.nombre}, le recordamos cordialmente que su cuenta presenta saldo pendiente. Por favor responda con su comprobante para actualizar su estado a la brevedad.`)}
+                  className="text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition-all hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
+                  style={{ borderColor: "var(--wa-border)", color: "var(--wa-button)" }}
+                >
+                  Recordatorio
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDirectSendMessage(`Estimado/a ${directSendClient.nombre}, hemos registrado con éxito su abono a la cuenta. Su saldo ha sido actualizado en nuestro sistema. ¡Muchas gracias por su puntualidad!`)}
+                  className="text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition-all hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
+                  style={{ borderColor: "var(--wa-border)", color: "var(--wa-button)" }}
+                >
+                  Confirmación Abono
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDirectSendMessage(`Aviso importante: Estimado/a ${directSendClient.nombre}, le notificamos que su cuenta se encuentra en fase de regularización. Comuníquese hoy para acordar su forma de pago.`)}
+                  className="text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition-all hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
+                  style={{ borderColor: "var(--wa-border)", color: "var(--wa-button)" }}
+                >
+                  Aviso Regularización
+                </button>
+              </div>
+            </div>
+
+            {/* Redacción del Mensaje */}
+            <div>
+              <label className="text-[11px] font-bold block mb-1.5" style={{ color: "var(--wa-muted)" }}>
+                Mensaje a enviar:
+              </label>
+              <textarea
+                rows={5}
+                value={directSendMessage}
+                onChange={(e) => setDirectSendMessage(e.target.value)}
+                className="wa-textarea text-xs w-full"
+                placeholder="Escriba el mensaje para este cliente..."
+              />
+            </div>
+
+            {/* Acciones */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => handleLoadClientToConsole(directSendClient)}
+                className="btn-wa-secondary w-full sm:w-auto text-xs py-2 px-3 justify-center"
+                title="Cargar número a la Consola de Envío para previsualización o edición extendida"
+              >
+                <LayoutDashboard size={14} />
+                <span>Abrir en Consola</span>
+              </button>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setDirectSendClient(null)}
+                  className="btn-wa-secondary w-full sm:w-auto text-xs py-2 px-4 justify-center"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSendDirectMessage}
+                  disabled={directSending || !directSendMessage.trim() || status !== 'CONNECTED'}
+                  className="btn-wa-primary w-full sm:w-auto text-xs py-2 px-5 justify-center"
+                  title={status !== 'CONNECTED' ? 'WhatsApp debe estar vinculado en la Consola para enviar' : 'Enviar mensaje por WhatsApp ahora'}
+                >
+                  {directSending ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Enviando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={14} />
+                      <span>Enviar por WhatsApp</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2559,16 +2745,38 @@ export default function Dashboard() {
                                   {c.agregadoEl ? new Date(c.agregadoEl).toLocaleDateString() : 'Activo'}
                                 </span>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleTestClientDirect(c)}
-                                  className="text-xs font-bold flex items-center gap-1.5 transition-colors px-3 py-1.5 rounded-lg"
-                                  style={{ color: "var(--wa-button)", background: "rgba(0, 168, 132, 0.1)" }}
-                                  title="Cargar número para enviar mensaje de prueba"
-                                >
-                                  <Send size={12} />
-                                  <span>Probar Envío</span>
-                                </button>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDirectSend(c)}
+                                    className="text-xs font-bold flex items-center gap-1.5 transition-all px-3 py-1.5 rounded-lg text-white shadow-sm hover:opacity-90 cursor-pointer"
+                                    style={{ background: "var(--wa-button)" }}
+                                    title={`Enviar mensaje por WhatsApp a ${c.nombre}`}
+                                  >
+                                    <Send size={12} />
+                                    <span>Enviar Mensaje</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleLoadClientToConsole(c)}
+                                    className="p-1.5 rounded-lg border transition-all hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
+                                    style={{ borderColor: "var(--wa-border)", color: "var(--wa-muted)" }}
+                                    title={`Cargar ${c.nombre} en la Consola de Envío`}
+                                  >
+                                    <LayoutDashboard size={14} />
+                                  </button>
+                                  {userRole === 'ADMIN' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleTestClientDirect(c)}
+                                      className="p-1.5 rounded-lg border transition-all hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
+                                      style={{ borderColor: "var(--wa-border)", color: "var(--wa-muted)" }}
+                                      title="Abrir en Laboratorio de Pruebas (Admin)"
+                                    >
+                                      <FlaskConical size={14} />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           );
