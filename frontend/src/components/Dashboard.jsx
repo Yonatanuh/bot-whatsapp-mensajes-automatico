@@ -2578,7 +2578,7 @@ export default function Dashboard() {
                         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--wa-muted)" }} />
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={fetchClients}
@@ -2587,41 +2587,41 @@ export default function Dashboard() {
                           title="Actualizar lista de clientes"
                         >
                           <RefreshCw size={13} className={clientsLoading ? 'animate-spin' : ''} />
-                          <span className="hidden sm:inline">Actualizar</span>
+                          <span>Actualizar</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={handleAutoCollection}
                           disabled={clients.length === 0}
-                          className="btn-wa-primary text-xs py-2 px-3.5"
+                          className="btn-wa-primary text-xs py-2 px-3.5 cursor-pointer"
                           title="Enviar mensaje automático a todo el directorio usando la plantilla"
                           style={{ background: "#f59e0b" }}
                         >
                           <Zap size={13} />
-                          <span className="hidden sm:inline">Cobro Automático</span>
+                          <span>Cobro Automático</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={handleClearAllClients}
                           disabled={clients.length === 0}
-                          className="btn-wa-secondary text-xs py-2 px-3.5 hover:bg-red-500/10 text-red-500 border-red-500/30"
+                          className="btn-wa-secondary text-xs py-2 px-3.5 hover:bg-red-500/10 text-red-500 border-red-500/30 cursor-pointer"
                           title="Vaciar y eliminar todos los clientes del directorio"
                         >
                           <Trash2 size={13} />
-                          <span className="hidden sm:inline">Vaciar Directorio</span>
+                          <span>Vaciar Directorio</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={handleExportClients}
                           disabled={clients.length === 0}
-                          className="btn-wa-secondary text-xs py-2 px-3.5"
+                          className="btn-wa-secondary text-xs py-2 px-3.5 cursor-pointer"
                           title="Descargar copia de seguridad de clientes en JSON"
                         >
                           <Download size={13} />
-                          <span className="hidden sm:inline">Descargar BD</span>
+                          <span>Descargar BD</span>
                         </button>
 
                         <input
@@ -2634,22 +2634,22 @@ export default function Dashboard() {
                         <button
                           type="button"
                           onClick={() => fileInputClientsRef.current && fileInputClientsRef.current.click()}
-                          className="btn-wa-secondary text-xs py-2 px-3.5"
+                          className="btn-wa-secondary text-xs py-2 px-3.5 cursor-pointer"
                           title="Subir / Importar archivo de clientes JSON a tu directorio"
                         >
                           <Upload size={13} />
-                          <span className="hidden sm:inline">Importar JSON</span>
+                          <span>Importar JSON</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={handleSyncClientsToMassSend}
                           disabled={clients.length === 0}
-                          className="btn-wa-primary text-xs py-2 px-3.5"
+                          className="btn-wa-primary text-xs py-2 px-3.5 cursor-pointer"
                           title="Cargar todos los números a la consola de envíos masivos"
                         >
                           <Send size={13} />
-                          <span className="hidden sm:inline">Exportar a Consola</span>
+                          <span>Exportar a Consola</span>
                         </button>
                       </div>
                     </div>
