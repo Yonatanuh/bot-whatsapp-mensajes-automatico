@@ -817,10 +817,14 @@ const PUPPETEER_BASE_ARGS = [
   "--disable-dev-shm-usage",
   "--no-first-run",
   "--disable-gpu",
-  "--disable-extensions"
+  "--disable-extensions",
+  "--disable-blink-features=AutomationControlled",
+  "--disable-features=IsolateOrigins,site-per-process",
+  "--disable-site-isolation-trials",
+  "--disable-web-security"
 ];
 
-const DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
 
 let resolvedChromiumExecutable = null;
 let chromiumInitPromise = null;
@@ -959,7 +963,8 @@ async function getOrCreateUserSession(userEmail) {
     authStrategy: new LocalAuth({ clientId, dataPath: authDataPath }),
     authTimeoutMs: 120000,
     webVersionCache: {
-      type: "none"
+      type: "remote",
+      remotePath: "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1051310411-alpha.html"
     },
     bypassCSP: true,
     userAgent: DESKTOP_USER_AGENT,
@@ -1108,12 +1113,18 @@ async function getOrCreateUserSession(userEmail) {
 
       if (sess.client.pupPage && !sess.client.pupPage.isClosed()) {
         const hasChatList = await sess.client.pupPage.evaluate(() => {
-          return Boolean(
+          const hasNoQr = !document.querySelector('canvas[aria-label*="Scan"]') && !document.querySelector('div[data-ref]');
+          const hasApp = Boolean(document.querySelector('#app') || document.querySelector('#main') || document.querySelector('header'));
+          const hasChatSelector = Boolean(
             document.querySelector('#pane-side') ||
             document.querySelector('[data-testid="chat-list"]') ||
             document.querySelector('[data-icon="chat"]') ||
-            document.querySelector('#side')
+            document.querySelector('[aria-label*="Chat"]') ||
+            document.querySelector('#side') ||
+            document.querySelector('[data-testid="intro-title"]')
           );
+          const hasStore = Boolean(window.Store && window.Store.Conn && window.Store.Conn.status === 'CONNECTED');
+          return hasChatSelector || (hasNoQr && hasApp) || hasStore;
         }).catch(() => false);
 
         if (hasChatList) {
@@ -1138,11 +1149,6 @@ io.on("connection", async (socket) => {
   if (!userEmail) return;
 
   socket.join(userEmail);
-
-  if (socket.user.role !== "ADMIN") {
-    return;
-  }
-
   socket.join(CORPORATE_GATEWAY_KEY);
 
   try {
@@ -1226,12 +1232,18 @@ async function ensureSessionConnected(session) {
 
     if (session.client.pupPage && !session.client.pupPage.isClosed()) {
       const inDom = await session.client.pupPage.evaluate(() => {
-        return Boolean(
+        const hasNoQr = !document.querySelector('canvas[aria-label*="Scan"]') && !document.querySelector('div[data-ref]');
+        const hasApp = Boolean(document.querySelector('#app') || document.querySelector('#main') || document.querySelector('header'));
+        const hasChatSelector = Boolean(
           document.querySelector('#pane-side') ||
           document.querySelector('[data-testid="chat-list"]') ||
           document.querySelector('[data-icon="chat"]') ||
-          document.querySelector('#side')
+          document.querySelector('[aria-label*="Chat"]') ||
+          document.querySelector('#side') ||
+          document.querySelector('[data-testid="intro-title"]')
         );
+        const hasStore = Boolean(window.Store && window.Store.Conn && window.Store.Conn.status === 'CONNECTED');
+        return hasChatSelector || (hasNoQr && hasApp) || hasStore;
       }).catch(() => false);
 
       if (inDom) {

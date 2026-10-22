@@ -4,7 +4,7 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "start": "node --max-old-space-size=256 server.js",
+    "start": "node --max-old-space-size=460 server.js",
     "dev": "node server.js",
     "build": "npm run build --prefix frontend",
     "test": "node --test tests/**/*.test.js"
