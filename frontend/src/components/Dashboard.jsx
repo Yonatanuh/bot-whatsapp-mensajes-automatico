@@ -9,7 +9,8 @@ import {
   Copy, Check, Video, Phone, MoreVertical, Paperclip, Smile,
   Mic, Wifi, Battery, Sun, Moon, FlaskConical, Zap, RefreshCw,
   Server, Cpu, CheckCircle2, AlertCircle, UserPlus, UserMinus,
-  Search, Plus, Pencil, Save, Download, RotateCcw, AlertTriangle, Database
+  Search, Plus, Pencil, Save, Download, RotateCcw, AlertTriangle, Database,
+  Calendar, ExternalLink
 } from 'lucide-react';
 import './Dashboard.css';
 
@@ -148,6 +149,8 @@ export default function Dashboard() {
   const [newClientNombre, setNewClientNombre] = useState('');
   const [newClientNumero, setNewClientNumero] = useState('');
   const [newClientNota, setNewClientNota] = useState('');
+  const [newClientEstado, setNewClientEstado] = useState('PENDIENTE'); // 'PENDIENTE' | 'VENCIDO' | 'PAGADO'
+  const [clientFilterStatus, setClientFilterStatus] = useState('ALL'); // 'ALL' | 'PENDIENTE' | 'VENCIDO' | 'PAGADO'
   const [editingClientId, setEditingClientId] = useState(null);
   const [clientAdding, setClientAdding] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
@@ -162,6 +165,17 @@ export default function Dashboard() {
   const [sendAllModalOpen, setSendAllModalOpen] = useState(false);
   const [sendAllMessage, setSendAllMessage] = useState('');
   const [sendAllSending, setSendAllSending] = useState(false);
+  const [sendAllAudience, setSendAllAudience] = useState('ALL'); // 'ALL' | 'PENDIENTE' | 'VENCIDO'
+  const [sendAllMode, setSendAllMode] = useState('NOW'); // 'NOW' | 'SCHEDULE'
+  const [sendAllScheduleTime, setSendAllScheduleTime] = useState(() => {
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  });
+
+  // Estados para Programaciones del Scheduler
+  const [schedules, setSchedules] = useState([]);
+  const [schedulesLoading, setSchedulesLoading] = useState(false);
 
   // Estados para Plantillas
   const [plantillas, setPlantillas] = useState([]);
@@ -294,9 +308,15 @@ export default function Dashboard() {
       setClients(normalizeClients(updated));
     });
 
+    // Escuchar actualizaciones de programaciones automáticas
+    socketRef.current.on('schedules_updated', (updated) => {
+      setSchedules(Array.isArray(updated) ? updated : []);
+    });
+
     // Medición inicial de ping, salud, estado de WhatsApp y carga de clientes
     fetchHealthAndPing();
     fetchClients();
+    fetchSchedules();
     fetchTemplates();
     fetchStatus();
 
@@ -608,6 +628,36 @@ export default function Dashboard() {
     }
   };
 
+  const fetchSchedules = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setSchedulesLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/api/schedules`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSchedules(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error('Error fetching schedules:', err);
+    } finally {
+      setSchedulesLoading(false);
+    }
+  };
+
+  const handleCancelSchedule = async (id) => {
+    if (!window.confirm('¿Desea cancelar este envío programado?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`${API_BASE}/api/schedules/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      showToast('success', 'Envío programado cancelado.');
+      fetchSchedules();
+    } catch (err) {
+      showToast('error', 'Error cancelando la programación.');
+    }
+  };
+
   const fetchPlatformUsers = async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -841,7 +891,8 @@ export default function Dashboard() {
       const payload = {
         nombre: newClientNombre.trim(),
         numero: cleanNum,
-        nota: newClientNota.trim()
+        nota: newClientNota.trim(),
+        estado: newClientEstado
       };
       
       let res;
@@ -865,6 +916,7 @@ export default function Dashboard() {
       setNewClientNombre('');
       setNewClientNumero('');
       setNewClientNota('');
+      setNewClientEstado('PENDIENTE');
       setEditingClientId(null);
     } catch (err) {
       showToast('error', err.response?.data?.error || 'Error al guardar el cliente.');
@@ -878,6 +930,7 @@ export default function Dashboard() {
     setNewClientNombre(client.nombre);
     setNewClientNumero(client.numero);
     setNewClientNota(client.nota || '');
+    setNewClientEstado(client.estado || 'PENDIENTE');
     window.scrollTo({ top: 0, behavior: 'smooth' });
     showToast('info', `Modo edición activado para ${client.nombre}`);
   };
@@ -887,6 +940,36 @@ export default function Dashboard() {
     setNewClientNombre('');
     setNewClientNumero('');
     setNewClientNota('');
+    setNewClientEstado('PENDIENTE');
+  };
+
+  const handleToggleClientStatus = async (client, nextStatus) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`${API_BASE}/api/clients/${client.id}`, { estado: nextStatus }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setClients(prev => prev.map(c => c.id === client.id ? { ...c, estado: nextStatus } : c));
+      showToast('success', `${client.nombre} ahora está: ${nextStatus === 'PAGADO' ? 'Pagado / Al día' : nextStatus === 'VENCIDO' ? 'Factura Vencida' : 'Saldo Pendiente'}`);
+    } catch (err) {
+      showToast('error', 'Error actualizando estado del cliente.');
+    }
+  };
+
+  const handleOpenWhatsAppDirect = (client, customMsg) => {
+    let cleanNum = (client.numero || "").replace(/\D/g, "");
+    if (cleanNum.startsWith("00")) cleanNum = cleanNum.substring(2);
+    if (cleanNum.length === 10 && /^(809|829|849)/.test(cleanNum)) {
+      cleanNum = "1" + cleanNum;
+    }
+    const baseText = customMsg || message || `Estimado/a ${client.nombre}, le saludamos cordialmente para recordarle la gestión de su cuenta.`;
+    const personalized = baseText
+      .replace(/{{nombre}}/g, client.nombre)
+      .replace(/{{nota}}/g, client.nota || "")
+      .replace(/{{monto}}/g, "su saldo pendiente")
+      .replace(/{{vencimiento}}/g, "la fecha límite");
+    const waUrl = `https://wa.me/${cleanNum}?text=${encodeURIComponent(personalized)}`;
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handleDeleteClient = async (id, nombre) => {
@@ -1024,19 +1107,59 @@ export default function Dashboard() {
 
   const handleConfirmSendAll = async () => {
     if (sendAllSending) return;
-    if (status !== 'CONNECTED') {
-      showToast('error', 'Tu WhatsApp no está vinculado. Por favor escanea tu código QR en la Consola antes de enviar.');
-      return;
-    }
     if (!sendAllMessage.trim()) {
       showToast('error', 'El mensaje no puede estar vacío.');
+      return;
+    }
+
+    const targetClients = sendAllAudience === 'ALL'
+      ? clients
+      : clients.filter(c => (c.estado || 'PENDIENTE') === sendAllAudience);
+
+    if (targetClients.length === 0) {
+      showToast('error', `No tienes clientes registrados con el filtro seleccionado (${sendAllAudience}).`);
+      return;
+    }
+
+    if (sendAllMode === 'SCHEDULE') {
+      const scheduleDate = new Date(sendAllScheduleTime);
+      if (isNaN(scheduleDate.getTime()) || scheduleDate.getTime() <= (Date.now() + 10000)) {
+        showToast('error', 'La fecha programada debe ser al menos 1 minuto en el futuro.');
+        return;
+      }
+
+      setSendAllSending(true);
+      try {
+        const token = localStorage.getItem('token');
+        await axios.post(`${API_BASE}/api/schedules`, {
+          messageTemplate: sendAllMessage.trim(),
+          delay: Number(delay) || 4,
+          filterEstado: sendAllAudience,
+          scheduledAt: scheduleDate.toISOString()
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        showToast('success', `¡Campaña programada exitosamente para ${scheduleDate.toLocaleString()}!`);
+        setSendAllModalOpen(false);
+        fetchSchedules();
+      } catch (err) {
+        showToast('error', err.response?.data?.error || 'Error programando campaña.');
+      } finally {
+        setSendAllSending(false);
+      }
+      return;
+    }
+
+    // Modo Inmediato
+    if (status !== 'CONNECTED') {
+      showToast('error', 'Tu WhatsApp no está vinculado. Por favor escanea tu código QR en la Consola antes de enviar.');
       return;
     }
 
     setSendAllSending(true);
     setLoading(true);
     setLogs(p => [...p, { 
-      text: `🚀 [ENVÍO A TODOS] Iniciando transmisión a ${clients.length} clientes...`, 
+      text: `🚀 [ENVÍO A TODOS] Iniciando transmisión a ${targetClients.length} clientes (${sendAllAudience})...`, 
       time: new Date().toLocaleTimeString(),
       type: 'info' 
     }]);
@@ -1044,9 +1167,9 @@ export default function Dashboard() {
     try {
       const token = localStorage.getItem('token');
       await axios.post(`${API_BASE}/api/send-auto-collections`,
-        { messageTemplate: sendAllMessage.trim(), delay: Number(delay) || 3 },
+        { messageTemplate: sendAllMessage.trim(), delay: Number(delay) || 3, filterEstado: sendAllAudience },
         { headers: { Authorization: `Bearer ${token}` } });
-      showToast('success', `¡Campaña iniciada para los ${clients.length} clientes!`);
+      showToast('success', `¡Campaña iniciada para los ${targetClients.length} clientes!`);
       setSendAllModalOpen(false);
       setActiveTab('dashboard'); // Cambiar a la consola para ver los logs en vivo
     } catch (err) {
@@ -1170,6 +1293,8 @@ export default function Dashboard() {
 
   const filteredClients = (Array.isArray(clients) ? clients : []).filter(c => {
     if (!c || typeof c !== 'object') return false;
+    const matchesStatus = clientFilterStatus === 'ALL' || (c.estado || 'PENDIENTE') === clientFilterStatus;
+    if (!matchesStatus) return false;
     if (!clientSearch || !clientSearch.trim()) return true;
     const term = clientSearch.toLowerCase();
     const nom = (c.nombre || '').toLowerCase();
@@ -1289,15 +1414,27 @@ export default function Dashboard() {
 
             {/* Acciones */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => handleLoadClientToConsole(directSendClient)}
-                className="btn-wa-secondary w-full sm:w-auto text-xs py-2 px-3 justify-center"
-                title="Cargar número a la Consola de Envío para previsualización o edición extendida"
-              >
-                <LayoutDashboard size={14} />
-                <span>Abrir en Consola</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => handleLoadClientToConsole(directSendClient)}
+                  className="btn-wa-secondary text-xs py-2 px-3 justify-center"
+                  title="Cargar número a la Consola de Envío para previsualización o edición extendida"
+                >
+                  <LayoutDashboard size={14} />
+                  <span>Abrir en Consola</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenWhatsAppDirect(directSendClient, directSendMessage)}
+                  className="btn-wa-secondary text-xs py-2 px-3 justify-center flex items-center gap-1.5"
+                  title="Abrir chat en WhatsApp Web o App en una nueva pestaña (no requiere pasarela activa)"
+                  style={{ color: "#25d366", borderColor: "rgba(37, 211, 102, 0.4)" }}
+                >
+                  <MessageCircle size={14} />
+                  <span>Chat Directo Web</span>
+                </button>
+              </div>
 
               <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                 <button
@@ -1322,7 +1459,7 @@ export default function Dashboard() {
                   ) : (
                     <>
                       <Send size={14} />
-                      <span>Enviar por WhatsApp</span>
+                      <span>Enviar por Pasarela</span>
                     </>
                   )}
                 </button>
@@ -1381,6 +1518,42 @@ export default function Dashboard() {
               </span>
             </div>
 
+            {/* Filtro de Audiencia Destinataria */}
+            <div>
+              <span className="text-[11px] font-bold block mb-1.5" style={{ color: "var(--wa-muted)" }}>
+                Público objetivo de este envío:
+              </span>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSendAllAudience('ALL')}
+                  className={`p-2 rounded-xl border text-center text-xs font-bold transition-all cursor-pointer ${sendAllAudience === 'ALL' ? 'border-[#00a884] bg-[#00a884]/10 text-[#00a884]' : 'border-gray-200 dark:border-gray-700 text-gray-500'}`}
+                >
+                  🎯 Todos ({clients.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSendAllAudience('PENDIENTE');
+                    setSendAllMessage('Estimado/a {{nombre}}, le recordamos cordialmente que su cuenta presenta saldo pendiente. {{nota}} Por favor responda con su comprobante para actualizar su estado. ¡Muchas gracias!');
+                  }}
+                  className={`p-2 rounded-xl border text-center text-xs font-bold transition-all cursor-pointer ${sendAllAudience === 'PENDIENTE' ? 'border-amber-500 bg-amber-500/10 text-amber-600' : 'border-gray-200 dark:border-gray-700 text-gray-500'}`}
+                >
+                  🟡 Pendientes ({clients.filter(c => (c.estado || 'PENDIENTE') === 'PENDIENTE').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSendAllAudience('VENCIDO');
+                    setSendAllMessage('Aviso Importante: Estimado/a {{nombre}}, su cuota se encuentra vencida. {{nota}} Comuníquese con nosotros a la brevedad para regularizar su balance.');
+                  }}
+                  className={`p-2 rounded-xl border text-center text-xs font-bold transition-all cursor-pointer ${sendAllAudience === 'VENCIDO' ? 'border-red-500 bg-red-500/10 text-red-600' : 'border-gray-200 dark:border-gray-700 text-gray-500'}`}
+                >
+                  🔴 Vencidos ({clients.filter(c => c.estado === 'VENCIDO').length})
+                </button>
+              </div>
+            </div>
+
             {/* Selector Rápido de Plantilla */}
             <div>
               <span className="text-[11px] font-bold block mb-1.5" style={{ color: "var(--wa-muted)" }}>
@@ -1415,6 +1588,46 @@ export default function Dashboard() {
                   <span className="text-[10px] text-gray-500 line-clamp-2">Aviso Formal: Estimado/a {"{{nombre}}"}, registra atraso...</span>
                 </button>
               </div>
+            </div>
+
+            {/* Modo de Envío: Inmediato vs Programado */}
+            <div className="p-3 rounded-xl border space-y-2.5" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold" style={{ color: "var(--wa-text)" }}>
+                  Momento del Envío:
+                </span>
+                <div className="flex items-center gap-1 p-1 rounded-lg bg-black/5 dark:bg-white/5">
+                  <button
+                    type="button"
+                    onClick={() => setSendAllMode('NOW')}
+                    className={`text-[11px] px-3 py-1 rounded-md font-bold transition-all cursor-pointer ${sendAllMode === 'NOW' ? 'bg-[#00a884] text-white shadow-xs' : 'text-gray-500'}`}
+                  >
+                    🚀 Enviar Ahora
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSendAllMode('SCHEDULE')}
+                    className={`text-[11px] px-3 py-1 rounded-md font-bold transition-all cursor-pointer ${sendAllMode === 'SCHEDULE' ? 'bg-[#00a884] text-white shadow-xs' : 'text-gray-500'}`}
+                  >
+                    ⏰ Programar
+                  </button>
+                </div>
+              </div>
+
+              {sendAllMode === 'SCHEDULE' && (
+                <div className="pt-2 border-t flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2" style={{ borderColor: "var(--wa-border)" }}>
+                  <span className="text-xs text-gray-500">
+                    Fecha y hora de inicio:
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={sendAllScheduleTime}
+                    onChange={(e) => setSendAllScheduleTime(e.target.value)}
+                    className="wa-textarea text-xs py-1 px-2.5 sm:w-auto"
+                    style={{ minWidth: "220px" }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Editor de Texto con Variables */}
@@ -1453,7 +1666,11 @@ export default function Dashboard() {
             {/* Acciones del Modal */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
               <span className="text-xs text-gray-500">
-                Se enviarán <strong>{clients.length}</strong> mensajes con intervalo de <strong>{delay}s</strong>.
+                Se {sendAllMode === 'SCHEDULE' ? 'programarán' : 'enviarán'} <strong>{
+                  sendAllAudience === 'ALL'
+                    ? clients.length
+                    : clients.filter(c => (c.estado || 'PENDIENTE') === sendAllAudience).length
+                }</strong> mensajes con intervalo de <strong>{delay}s</strong>.
               </span>
 
               <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
@@ -1467,20 +1684,38 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={handleConfirmSendAll}
-                  disabled={sendAllSending || !sendAllMessage.trim() || status !== 'CONNECTED' || clients.length === 0}
+                  disabled={
+                    sendAllSending ||
+                    !sendAllMessage.trim() ||
+                    (sendAllMode === 'NOW' && status !== 'CONNECTED') ||
+                    (sendAllAudience === 'ALL' ? clients.length === 0 : clients.filter(c => (c.estado || 'PENDIENTE') === sendAllAudience).length === 0)
+                  }
                   className="btn-wa-primary w-full sm:w-auto text-xs py-2.5 px-6 justify-center shadow-md font-bold"
                   style={{ background: "#00a884" }}
-                  title={status !== 'CONNECTED' ? 'Debes vincular WhatsApp escaneando el código QR para enviar' : 'Enviar mensaje a todos los clientes ahora'}
+                  title={sendAllMode === 'NOW' && status !== 'CONNECTED' ? 'Debes vincular WhatsApp escaneando el código QR para enviar' : 'Confirmar acción'}
                 >
                   {sendAllSending ? (
                     <>
                       <Loader2 size={16} className="animate-spin" />
-                      <span>Enviando Campaña...</span>
+                      <span>{sendAllMode === 'SCHEDULE' ? 'Programando...' : 'Enviando Campaña...'}</span>
+                    </>
+                  ) : sendAllMode === 'SCHEDULE' ? (
+                    <>
+                      <Calendar size={16} />
+                      <span>⏰ Programar Envío ({
+                        sendAllAudience === 'ALL'
+                          ? clients.length
+                          : clients.filter(c => (c.estado || 'PENDIENTE') === sendAllAudience).length
+                      })</span>
                     </>
                   ) : (
                     <>
                       <Send size={16} />
-                      <span>🚀 Enviar a Todos ({clients.length})</span>
+                      <span>🚀 Enviar a Todos ({
+                        sendAllAudience === 'ALL'
+                          ? clients.length
+                          : clients.filter(c => (c.estado || 'PENDIENTE') === sendAllAudience).length
+                      })</span>
                     </>
                   )}
                 </button>
@@ -1826,7 +2061,8 @@ export default function Dashboard() {
 
           {/* == PESTAÑA 1: CONSOLA DE ENVÍOS == */}
           {activeTab === 'dashboard' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            <div className="space-y-8">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               
               {/* Columna Izquierda: Redacción & Terminal (6 Cols) */}
               <div className="lg:col-span-6 space-y-8">
@@ -2349,7 +2585,81 @@ export default function Dashboard() {
               </div>
 
             </div>
-          )}
+
+            {/* == SECCIÓN DE ENVÍOS PROGRAMADOS (SCHEDULER) == */}
+            <div className="wa-card space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b" style={{ borderColor: "var(--wa-border)" }}>
+                <div className="flex items-center gap-2">
+                  <Calendar size={17} style={{ color: "var(--wa-button)" }} />
+                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--wa-text)" }}>
+                    Envíos Automáticos Programados ({schedules.filter(s => s.status === 'SCHEDULED').length})
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchSchedules}
+                  disabled={schedulesLoading}
+                  className="text-[11px] font-semibold text-gray-400 hover:text-gray-600 flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw size={11} className={schedulesLoading ? 'animate-spin' : ''} />
+                  <span>Actualizar</span>
+                </button>
+              </div>
+
+              {schedules.length === 0 ? (
+                <p className="text-xs py-2 text-center" style={{ color: "var(--wa-muted)" }}>
+                  No tienes campañas programadas. Puedes programar un envío con fecha futura desde el botón "Enviar a Todos".
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {schedules.slice(0, 5).map((s) => (
+                    <div 
+                      key={s.id}
+                      className="p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                      style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span 
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              s.status === 'SCHEDULED' ? 'bg-amber-500/15 text-amber-600 border border-amber-500/30' :
+                              s.status === 'COMPLETED' ? 'bg-emerald-500/15 text-emerald-600 border border-emerald-500/30' :
+                              s.status === 'RUNNING' ? 'bg-blue-500/15 text-blue-600 border border-blue-500/30 animate-pulse' :
+                              'bg-red-500/15 text-red-600 border border-red-500/30'
+                            }`}
+                          >
+                            {s.status === 'SCHEDULED' ? 'Programado' : s.status === 'COMPLETED' ? 'Ejecutado' : s.status === 'RUNNING' ? 'Enviando...' : 'Fallido'}
+                          </span>
+                          <span className="font-bold flex items-center gap-1" style={{ color: "var(--wa-text)" }}>
+                            <Clock size={12} />
+                            {new Date(s.scheduledAt).toLocaleString()}
+                          </span>
+                          <span className="text-[10px] text-gray-400">
+                            (Audiencia: {s.filterEstado || 'TODOS'})
+                          </span>
+                        </div>
+                        <p className="text-[11px] line-clamp-1 italic text-gray-500">
+                          "{s.messageTemplate}"
+                        </p>
+                      </div>
+
+                      {s.status === 'SCHEDULED' && (
+                        <button
+                          type="button"
+                          onClick={() => handleCancelSchedule(s.id)}
+                          className="btn-wa-secondary text-xs py-1 px-2.5 text-red-500 border-red-500/30 hover:bg-red-500/10 cursor-pointer self-end sm:self-center"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
 
           {/* == PESTAÑA 2: LABORATORIO DE PRUEBAS & DIAGNÓSTICO DEL SISTEMA (SOLO ADMIN) == */}
           {activeTab === 'testing' && userRole === 'ADMIN' && (
@@ -2789,7 +3099,7 @@ export default function Dashboard() {
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                         <div>
                           <label className="text-[11px] font-bold block mb-1" style={{ color: "var(--wa-muted)" }}>
                             Nombre Completo *
@@ -2809,7 +3119,7 @@ export default function Dashboard() {
 
                         <div>
                           <label className="text-[11px] font-bold block mb-1" style={{ color: "var(--wa-muted)" }}>
-                            Número WhatsApp (con código) *
+                            Número WhatsApp *
                           </label>
                           <div>
                             <input
@@ -2826,7 +3136,23 @@ export default function Dashboard() {
 
                         <div>
                           <label className="text-[11px] font-bold block mb-1" style={{ color: "var(--wa-muted)" }}>
-                            Nota / Concepto de Cobro (Opcional)
+                            Estado de Cuenta
+                          </label>
+                          <select
+                            value={newClientEstado}
+                            onChange={e => setNewClientEstado(e.target.value)}
+                            className="wa-textarea cursor-pointer text-xs font-semibold"
+                            style={{ background: "var(--wa-input-bg)", color: "var(--wa-text)" }}
+                          >
+                            <option value="PENDIENTE">🟡 Saldo Pendiente</option>
+                            <option value="VENCIDO">🔴 Factura Vencida</option>
+                            <option value="PAGADO">🟢 Pagado / Al Día</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold block mb-1" style={{ color: "var(--wa-muted)" }}>
+                            Nota / Concepto (Opcional)
                           </label>
                           <input
                             type="text"
@@ -2958,6 +3284,37 @@ export default function Dashboard() {
                       </div>
                     </div>
 
+                    {/* Filtros rápidos por Estado */}
+                    <div className="flex items-center gap-2 flex-wrap mb-4">
+                      <span className="text-xs font-semibold" style={{ color: "var(--wa-muted)" }}>Filtrar:</span>
+                      {[
+                        { id: 'ALL', label: 'Todos', count: clients.length },
+                        { id: 'PENDIENTE', label: 'Pendientes', count: clients.filter(c => (c.estado || 'PENDIENTE') === 'PENDIENTE').length },
+                        { id: 'VENCIDO', label: 'Vencidos', count: clients.filter(c => c.estado === 'VENCIDO').length },
+                        { id: 'PAGADO', label: 'Pagados', count: clients.filter(c => c.estado === 'PAGADO').length },
+                      ].map(pill => {
+                        const active = clientFilterStatus === pill.id;
+                        return (
+                          <button
+                            key={pill.id}
+                            type="button"
+                            onClick={() => setClientFilterStatus(pill.id)}
+                            className={`px-2.5 py-1 text-xs rounded-full border transition-all cursor-pointer font-medium flex items-center gap-1.5 ${
+                              active
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                : 'hover:opacity-80'
+                            }`}
+                            style={!active ? { borderColor: "var(--wa-border)", color: "var(--wa-text)", background: "var(--wa-card)" } : {}}
+                          >
+                            <span>{pill.label}</span>
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${active ? 'bg-white/20 text-white' : 'bg-black/5 dark:bg-white/10'}`}>
+                              {pill.count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
                     {/* Listado de Tarjetas de Clientes */}
                     {clientsLoading && clients.length === 0 ? (
                       <div className="py-12 text-center" style={{ color: "var(--wa-muted)" }}>
@@ -3003,9 +3360,30 @@ export default function Dashboard() {
                                       {iniciales}
                                     </div>
                                     <div>
-                                      <span className="text-sm font-bold block leading-tight" style={{ color: "var(--wa-text)" }}>
-                                        {c.nombre}
-                                      </span>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-sm font-bold block leading-tight" style={{ color: "var(--wa-text)" }}>
+                                          {c.nombre}
+                                        </span>
+                                        {/* Status Badge interactivo */}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const current = c.estado || 'PENDIENTE';
+                                            const next = current === 'PENDIENTE' ? 'VENCIDO' : current === 'VENCIDO' ? 'PAGADO' : 'PENDIENTE';
+                                            handleToggleClientStatus(c, next);
+                                          }}
+                                          title="Clic para cambiar: Pendiente ➔ Vencido ➔ Pagado"
+                                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold border transition-all cursor-pointer ${
+                                            (c.estado || 'PENDIENTE') === 'PAGADO'
+                                              ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
+                                              : (c.estado || 'PENDIENTE') === 'VENCIDO'
+                                              ? 'bg-red-500/10 text-red-600 border-red-500/30'
+                                              : 'bg-amber-500/10 text-amber-600 border-amber-500/30'
+                                          }`}
+                                        >
+                                          {(c.estado || 'PENDIENTE') === 'PAGADO' ? '🟢 Pagado' : (c.estado || 'PENDIENTE') === 'VENCIDO' ? '🔴 Vencido' : '🟡 Pendiente'}
+                                        </button>
+                                      </div>
                                       <div className="flex items-center gap-1.5 mt-1" style={{ color: "var(--wa-muted)" }}>
                                         <MessageCircle size={11} style={{ color: "var(--wa-button)" }} />
                                         <span className="text-xs font-medium">
@@ -3058,7 +3436,16 @@ export default function Dashboard() {
                                     title={`Enviar mensaje por WhatsApp a ${c.nombre}`}
                                   >
                                     <Send size={12} />
-                                    <span>Enviar Mensaje</span>
+                                    <span>Enviar</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenWhatsAppDirect(c)}
+                                    className="text-xs font-bold flex items-center gap-1 transition-all px-2.5 py-1.5 rounded-lg border hover:bg-emerald-500/10 text-emerald-600 border-emerald-500/30 cursor-pointer"
+                                    title={`Abrir chat directo en WhatsApp Web / App para ${c.nombre}`}
+                                  >
+                                    <ExternalLink size={12} />
+                                    <span className="hidden sm:inline">wa.me</span>
                                   </button>
                                   <button
                                     type="button"

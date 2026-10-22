@@ -27,6 +27,7 @@ frontend/.env*
 /users.json
 /clients.json
 /templates.json
+/schedules.json
 backups/
 **/backups/
 !seeds/

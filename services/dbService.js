@@ -24,6 +24,7 @@ const SEEDS_DIR = path.join(__dirname, "..", "seeds");
 const CLIENTS_FILE = path.join(DATA_DIR, "clients.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const TEMPLATES_FILE = path.join(DATA_DIR, "templates.json");
+const SCHEDULES_FILE = path.join(DATA_DIR, "schedules.json");
 
 const DEFAULT_TEMPLATES = {
   plantillas: [
@@ -50,6 +51,7 @@ function loadLocalClients() {
     const list = JSON.parse(data) || [];
     return list.map(c => ({
       ...c,
+      estado: ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(c.estado) ? c.estado : 'PENDIENTE',
       nota: decryptField(c.nota)
     }));
   } catch {
@@ -61,11 +63,29 @@ function saveLocalClients(clients) {
   try {
     const encryptedList = clients.map(c => ({
       ...c,
+      estado: ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(c.estado) ? c.estado : 'PENDIENTE',
       nota: encryptField(c.nota)
     }));
     fs.writeFileSync(CLIENTS_FILE, JSON.stringify(encryptedList, null, 2), "utf-8");
   } catch (err) {
     console.error("⚠️ [DB] Error escribiendo réplica local de clientes:", err.message);
+  }
+}
+
+function loadLocalSchedules() {
+  try {
+    if (!fs.existsSync(SCHEDULES_FILE)) return [];
+    return JSON.parse(fs.readFileSync(SCHEDULES_FILE, "utf-8")) || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalSchedules(schedules) {
+  try {
+    fs.writeFileSync(SCHEDULES_FILE, JSON.stringify(schedules, null, 2), "utf-8");
+  } catch (err) {
+    console.error("⚠️ [DB] Error escribiendo réplica local de programaciones:", err.message);
   }
 }
 
@@ -276,6 +296,7 @@ async function getAllClients() {
         .toArray();
       return docs.map(c => ({
         ...c,
+        estado: ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(c.estado) ? c.estado : 'PENDIENTE',
         nota: decryptField(c.nota)
       }));
     } catch (err) {
@@ -295,6 +316,7 @@ async function addClient(clientData) {
     nombre: clientData.nombre,
     numero: clientData.numero,
     nota: encryptedNota,
+    estado: ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(clientData.estado) ? clientData.estado : 'PENDIENTE',
     ownerEmail: emailKey, // conservado para auditoría
     agregadoEl: clientData.agregadoEl || new Date().toISOString()
   };
@@ -325,6 +347,9 @@ async function updateClient(id, ownerEmail, updates) {
   const mongoUpdate = {};
   if (updates.nombre) mongoUpdate.nombre = updates.nombre;
   if (updates.numero) mongoUpdate.numero = updates.numero;
+  if (updates.estado && ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(updates.estado)) {
+    mongoUpdate.estado = updates.estado;
+  }
   if (updates.nota !== undefined) mongoUpdate.nota = encryptField(updates.nota);
 
   if (isConnected && mongoDb) {
@@ -344,6 +369,9 @@ async function updateClient(id, ownerEmail, updates) {
   if (idx !== -1) {
     if (updates.nombre) currentLocal[idx].nombre = updates.nombre;
     if (updates.numero) currentLocal[idx].numero = updates.numero;
+    if (updates.estado && ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(updates.estado)) {
+      currentLocal[idx].estado = updates.estado;
+    }
     if (updates.nota !== undefined) currentLocal[idx].nota = updates.nota;
     saveLocalClients(currentLocal);
     return currentLocal[idx];
@@ -412,6 +440,7 @@ async function importClientsBatch(newClientsList, userEmail) {
         nombre: cleanName,
         numero: rawPhone,
         nota: cleanNota,
+        estado: ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(item.estado) ? item.estado : 'PENDIENTE',
         ownerEmail: emailKey,
         agregadoEl: new Date().toISOString()
       });
@@ -435,6 +464,87 @@ async function importClientsBatch(newClientsList, userEmail) {
   saveLocalClients(allLocal);
 
   return toInsert.length;
+}
+
+// ── GESTIÓN DE PROGRAMACIONES Y RECORDATORIOS (SCHEDULER) ──
+
+async function getAllSchedules() {
+  if (isConnected && mongoDb) {
+    try {
+      return await mongoDb.collection("schedules").find({}, { projection: { _id: 0 } }).toArray();
+    } catch (err) {
+      console.warn("⚠️ [DB] Error leyendo programaciones de MongoDB:", err.message);
+    }
+  }
+  return loadLocalSchedules();
+}
+
+async function getSchedulesForUser(userEmail) {
+  const all = await getAllSchedules();
+  if (!userEmail) return all;
+  const emailKey = userEmail.toLowerCase().trim();
+  return all.filter(s => (s.ownerEmail || "").toLowerCase().trim() === emailKey);
+}
+
+async function addSchedule(scheduleData) {
+  const doc = {
+    id: scheduleData.id || crypto.randomUUID(),
+    messageTemplate: scheduleData.messageTemplate || "",
+    delay: Number(scheduleData.delay) || 4,
+    filterEstado: scheduleData.filterEstado || "ALL",
+    scheduledAt: scheduleData.scheduledAt,
+    status: scheduleData.status || "SCHEDULED",
+    ownerEmail: (scheduleData.ownerEmail || "").toLowerCase().trim(),
+    createdAt: new Date().toISOString(),
+    result: null
+  };
+
+  if (isConnected && mongoDb) {
+    try {
+      await mongoDb.collection("schedules").insertOne({ ...doc });
+    } catch (err) {
+      console.warn("⚠️ [DB] Error guardando programación en MongoDB:", err.message);
+    }
+  }
+
+  const all = loadLocalSchedules();
+  all.push(doc);
+  saveLocalSchedules(all);
+  return doc;
+}
+
+async function updateSchedule(id, updates) {
+  if (isConnected && mongoDb) {
+    try {
+      await mongoDb.collection("schedules").updateOne({ id }, { $set: updates });
+    } catch (err) {
+      console.warn("⚠️ [DB] Error actualizando programación en MongoDB:", err.message);
+    }
+  }
+
+  const all = loadLocalSchedules();
+  const idx = all.findIndex(s => s.id === id);
+  if (idx !== -1) {
+    all[idx] = { ...all[idx], ...updates };
+    saveLocalSchedules(all);
+    return all[idx];
+  }
+  return null;
+}
+
+async function deleteSchedule(id) {
+  if (isConnected && mongoDb) {
+    try {
+      await mongoDb.collection("schedules").deleteOne({ id });
+    } catch (err) {
+      console.warn("⚠️ [DB] Error eliminando programación en MongoDB:", err.message);
+    }
+  }
+
+  const all = loadLocalSchedules();
+  const filtered = all.filter(s => s.id !== id);
+  saveLocalSchedules(filtered);
+  return true;
 }
 
 async function syncLocalClientsToMongo(clients) {
@@ -682,6 +792,13 @@ module.exports = {
   // Plantillas
   getTemplatesForUser,
   saveTemplatesForUser,
+
+  // Programaciones / Scheduler
+  getAllSchedules,
+  getSchedulesForUser,
+  addSchedule,
+  updateSchedule,
+  deleteSchedule,
 
   // Métodos sincrónicos locales (para loops en tiempo real como WhatsApp)
   loadLocalClientsForUser,

@@ -1322,52 +1322,46 @@ app.post("/api/send", authenticateToken, async (req, res) => {
   io.to(userEmail).emit("log", `🚀 Campaña finalizada.`);
 });
 
-// Envío Automático a contactos de cobro del usuario con reemplazo de variables
-app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
-  const userEmail = req.user.email.toLowerCase();
+// Función reutilizable para ejecución de cobros automáticos (Inmediato o Programado)
+async function executeAutoCollections(userEmail, { messageTemplate, delay, filterEstado }) {
   const session = await getOrCreateUserSession(userEmail);
-
   const isConnected = await ensureSessionConnected(session);
   if (!isConnected || !session || !session.client) {
-    return res.status(400).json({ error: "Tu cuenta de WhatsApp no está vinculada. Por favor escanea tu código QR en la Consola." });
+    throw new Error("Tu cuenta de WhatsApp no está vinculada. Por favor escanea tu código QR en la Consola.");
   }
 
   const client = session.client;
-  const { messageTemplate, delay } = req.body;
-  if (!messageTemplate || typeof messageTemplate !== "string" || !messageTemplate.trim()) {
-    return res.status(400).json({ error: "La plantilla del mensaje es requerida." });
+  const allClients = await dbService.getClientsForUser(userEmail);
+  if (!allClients || allClients.length === 0) {
+    throw new Error("No tienes clientes en tu directorio de cobro personal.");
   }
 
-  const clients = await dbService.getClientsForUser(userEmail);
-  if (!clients || clients.length === 0) {
-    return res.status(400).json({ error: "No tienes clientes en tu directorio de cobro personal." });
+  let clients = allClients;
+  if (filterEstado && ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(filterEstado)) {
+    clients = allClients.filter(c => (c.estado || 'PENDIENTE') === filterEstado);
   }
 
-  if (clients.length > MAX_NUMBERS_PER_BATCH) {
-    return res.status(400).json({
-      error: `Directorio excede el límite de envío seguro (${clients.length} contactos). Máximo permitido: ${MAX_NUMBERS_PER_BATCH}.`
-    });
+  if (clients.length === 0) {
+    throw new Error(`No se encontraron clientes con estado "${filterEstado}".`);
   }
 
   const parsedDelay = parseDelayMs(delay);
-
-  const cleanTemplate = messageTemplate.slice(0, 4096);
-
-  res.json({
-    message: "Envío automático de cobro iniciado",
-    total: clients.length,
-  });
+  const cleanTemplate = (messageTemplate || "").slice(0, 4096);
 
   io.to(userEmail).emit(
     "log",
-    `🤖 [COBRO AUTOMÁTICO] Iniciando campaña a ${clients.length} contactos de tu directorio...`,
+    `🤖 [COBRO AUTOMÁTICO] Iniciando campaña a ${clients.length} contactos (Filtro: ${filterEstado || 'TODOS'})...`,
   );
+
+  let sent = 0;
+  let failed = 0;
 
   for (const cliente of clients) {
     try {
       const cleanNumber = formatPhoneNumber(cliente.numero);
       if (!isValidPhone(cleanNumber)) {
         io.to(userEmail).emit("log", `⚠️ [COBRO] Omitido: ${cliente.nombre} (${cliente.numero}) formato inválido.`);
+        failed++;
         continue;
       }
 
@@ -1385,14 +1379,17 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
           "log",
           `✅ [COBRO] Entregado a: ${cliente.nombre} (${cliente.numero})`,
         );
+        sent++;
       } else {
         io.to(userEmail).emit(
           "log",
           `⚠️ [COBRO] Falló: ${cliente.nombre} (${cliente.numero}) no tiene WhatsApp activo.`,
         );
+        failed++;
       }
       await new Promise((resolve) => setTimeout(resolve, parsedDelay));
     } catch (error) {
+      failed++;
       io.to(userEmail).emit(
         "log",
         `❌ [COBRO] Error con ${cliente.nombre} (${cliente.numero}): ${error.message}`,
@@ -1413,7 +1410,117 @@ app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
       }
     }
   }
-  io.to(userEmail).emit("log", `🚀 [COBRO AUTOMÁTICO] Campaña finalizada con éxito.`);
+
+  io.to(userEmail).emit("log", `🚀 [COBRO AUTOMÁTICO] Finalizado. Entregados: ${sent}, Omitidos/Errores: ${failed}.`);
+  return { total: clients.length, sent, failed };
+}
+
+// Envío Automático a contactos de cobro del usuario con reemplazo de variables
+app.post("/api/send-auto-collections", authenticateToken, async (req, res) => {
+  const userEmail = req.user.email.toLowerCase();
+  const session = await getOrCreateUserSession(userEmail);
+
+  const isConnected = await ensureSessionConnected(session);
+  if (!isConnected || !session || !session.client) {
+    return res.status(400).json({ error: "Tu cuenta de WhatsApp no está vinculada. Por favor escanea tu código QR en la Consola." });
+  }
+
+  const { messageTemplate, delay, filterEstado } = req.body;
+  if (!messageTemplate || typeof messageTemplate !== "string" || !messageTemplate.trim()) {
+    return res.status(400).json({ error: "La plantilla del mensaje es requerida." });
+  }
+
+  const allClients = await dbService.getClientsForUser(userEmail);
+  if (!allClients || allClients.length === 0) {
+    return res.status(400).json({ error: "No tienes clientes en tu directorio de cobro personal." });
+  }
+
+  let clients = allClients;
+  if (filterEstado && ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(filterEstado)) {
+    clients = allClients.filter(c => (c.estado || 'PENDIENTE') === filterEstado);
+  }
+
+  if (clients.length === 0) {
+    return res.status(400).json({ error: `No tienes clientes registrados con estado "${filterEstado}".` });
+  }
+
+  if (clients.length > MAX_NUMBERS_PER_BATCH) {
+    return res.status(400).json({
+      error: `Directorio excede el límite de envío seguro (${clients.length} contactos). Máximo permitido: ${MAX_NUMBERS_PER_BATCH}.`
+    });
+  }
+
+  res.json({
+    message: "Envío automático de cobro iniciado",
+    total: clients.length,
+    filterEstado: filterEstado || "ALL"
+  });
+
+  // Ejecución en segundo plano
+  executeAutoCollections(userEmail, { messageTemplate, delay, filterEstado }).catch(err => {
+    console.error("⚠️ Error en ejecución de cobro automático:", err.message);
+  });
+});
+
+// ── PROGRAMACIÓN DE ENVÍOS (SCHEDULER API) ──
+
+// Obtener todas las programaciones del usuario
+app.get("/api/schedules", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    const schedules = await dbService.getSchedulesForUser(userEmail);
+    res.json(schedules);
+  } catch (err) {
+    res.status(500).json({ error: "Error consultando envíos programados." });
+  }
+});
+
+// Crear una nueva programación
+app.post("/api/schedules", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    const { messageTemplate, delay, filterEstado, scheduledAt } = req.body;
+    if (!messageTemplate || typeof messageTemplate !== "string" || !messageTemplate.trim()) {
+      return res.status(400).json({ error: "La plantilla del mensaje es requerida para programar." });
+    }
+    if (!scheduledAt) {
+      return res.status(400).json({ error: "La fecha y hora de envío programado son obligatorias." });
+    }
+
+    const scheduleDate = new Date(scheduledAt);
+    if (isNaN(scheduleDate.getTime()) || scheduleDate.getTime() <= (Date.now() + 10000)) {
+      return res.status(400).json({ error: "La fecha y hora programada debe ser al menos 1 minuto en el futuro." });
+    }
+
+    const doc = await dbService.addSchedule({
+      messageTemplate: messageTemplate.trim(),
+      delay: Number(delay) || 4,
+      filterEstado: filterEstado || "ALL",
+      scheduledAt: scheduleDate.toISOString(),
+      ownerEmail: userEmail
+    });
+
+    const userSchedules = await dbService.getSchedulesForUser(userEmail);
+    io.to(userEmail).emit("schedules_updated", userSchedules);
+    res.status(201).json(doc);
+  } catch (err) {
+    console.error("⚠️ Error creando envío programado:", err.message);
+    res.status(500).json({ error: "Error interno guardando la programación." });
+  }
+});
+
+// Cancelar/Eliminar una programación
+app.delete("/api/schedules/:id", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email.toLowerCase();
+    const id = sanitizeText(req.params.id, 64);
+    await dbService.deleteSchedule(id);
+    const userSchedules = await dbService.getSchedulesForUser(userEmail);
+    io.to(userEmail).emit("schedules_updated", userSchedules);
+    res.json({ success: true, message: "Programación cancelada con éxito." });
+  } catch (err) {
+    res.status(500).json({ error: "Error cancelando la programación." });
+  }
 });
 
 // Obtener estado actual de la pasarela de WhatsApp
@@ -1829,6 +1936,7 @@ app.post("/api/clients", authenticateToken, async (req, res) => {
     const cleanNombre = sanitizeText(nombre, 100);
     const cleanNota = sanitizeText(nota || "", 500);
     const cleanNumero = sanitizePhone(numero);
+    const cleanEstado = ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(req.body.estado) ? req.body.estado : 'PENDIENTE';
 
     if (!cleanNombre || cleanNombre.length < 2) {
       return res.status(400).json({ error: "El nombre debe tener al menos 2 caracteres." });
@@ -1850,6 +1958,7 @@ app.post("/api/clients", authenticateToken, async (req, res) => {
       nombre: cleanNombre,
       numero: cleanNumero,
       nota: cleanNota,
+      estado: cleanEstado,
       ownerEmail: userEmail
     });
 
@@ -1902,6 +2011,10 @@ app.put("/api/clients/:id", authenticateToken, async (req, res) => {
 
     if (nota !== undefined) {
       updates.nota = sanitizeText(nota, 500);
+    }
+
+    if (req.body.estado && ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(req.body.estado)) {
+      updates.estado = req.body.estado;
     }
 
     const updated = await dbService.updateClient(id, userEmail, updates);
@@ -2251,6 +2364,49 @@ process.on("unhandledRejection", (reason) => {
   console.error("⚠️ [PROCESO] Promesa rechazada no manejada:", reason ? (reason.message || reason) : "Unknown reason");
 });
 
+function initScheduler() {
+  setInterval(async () => {
+    try {
+      const allSchedules = await dbService.getAllSchedules();
+      const now = new Date();
+      const pendingJobs = allSchedules.filter(s => s.status === "SCHEDULED" && new Date(s.scheduledAt) <= now);
+
+      for (const job of pendingJobs) {
+        await dbService.updateSchedule(job.id, { status: "RUNNING" });
+        const userEmail = (job.ownerEmail || "").toLowerCase().trim();
+        io.to(userEmail).emit("log", `⏰ [PROGRAMACIÓN] Ejecutando envío programado (${job.filterEstado || 'TODOS'})...`);
+
+        try {
+          const result = await executeAutoCollections(userEmail, {
+            messageTemplate: job.messageTemplate,
+            delay: job.delay,
+            filterEstado: job.filterEstado
+          });
+          await dbService.updateSchedule(job.id, {
+            status: "COMPLETED",
+            executedAt: new Date().toISOString(),
+            result
+          });
+          io.to(userEmail).emit("log", `✅ [PROGRAMACIÓN] Envío programado completado exitosamente.`);
+        } catch (runErr) {
+          await dbService.updateSchedule(job.id, {
+            status: "FAILED",
+            executedAt: new Date().toISOString(),
+            error: runErr.message
+          });
+          io.to(userEmail).emit("log", `❌ [PROGRAMACIÓN] Falló envío programado: ${runErr.message}`);
+        }
+
+        const updatedSchedules = await dbService.getSchedulesForUser(userEmail);
+        io.to(userEmail).emit("schedules_updated", updatedSchedules);
+      }
+    } catch (err) {
+      // Ignorar en loop
+    }
+  }, 20000);
+  console.log("⏰ [SCHEDULER] Motor de envíos automáticos programados activo.");
+}
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", async () => {
   console.log(`🚀 Gateway de WhatsApp (Producción Segura) activo en puerto ${PORT}`);
@@ -2261,6 +2417,7 @@ server.listen(PORT, "0.0.0.0", async () => {
   }
   initAutoBackup();
   initSeedData();
+  initScheduler();
   console.log("✅ Servidor listo y en escucha de conexiones HTTP y WebSockets.");
   // Pre-arrancar inmediatamente la pasarela corporativa para que el QR esté listo de inmediato
   getOrCreateUserSession().catch(e => console.warn("⚠️ [INICIO] Aviso pre-arrancando pasarela WhatsApp:", e.message));

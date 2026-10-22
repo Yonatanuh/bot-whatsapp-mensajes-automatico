@@ -42,3 +42,4 @@ test('getFallbackJid produces valid @c.us for 10-15 digit numbers', () => {
 
   assert.equal(getFallbackJid('123'), null);
 });
+
