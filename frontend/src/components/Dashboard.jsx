@@ -158,6 +158,11 @@ export default function Dashboard() {
   const [directSendMessage, setDirectSendMessage] = useState('');
   const [directSending, setDirectSending] = useState(false);
 
+  // Estados para Modal de Envío a Todos los Clientes (1 Clic)
+  const [sendAllModalOpen, setSendAllModalOpen] = useState(false);
+  const [sendAllMessage, setSendAllMessage] = useState('');
+  const [sendAllSending, setSendAllSending] = useState(false);
+
   // Estados para Plantillas
   const [plantillas, setPlantillas] = useState([]);
 
@@ -967,8 +972,16 @@ export default function Dashboard() {
   const handleSend = async () => {
     if (loading) return;
     const nums = (typeof numbers === 'string' ? numbers : '').split(/[\n,;]+/).map(n => n.trim()).filter(Boolean);
-    if (!nums.length || !message.trim()) { 
-      showToast('error', 'Por favor ingrese al menos un destinatario y el mensaje.'); 
+    if (!nums.length) {
+      if (clients.length > 0) {
+        handleOpenSendAllModal();
+        return;
+      }
+      showToast('error', 'Por favor ingrese al menos un destinatario o registre clientes en el directorio.'); 
+      return; 
+    }
+    if (!message.trim()) { 
+      showToast('error', 'Por favor redacte el mensaje a enviar.'); 
       return; 
     }
     setLoading(true);
@@ -995,18 +1008,35 @@ export default function Dashboard() {
     }
   };
 
-  // 1.5 Envío Automático a Contactos de Cobro
-  const handleAutoCollection = async () => {
-    if (loading) return;
-    if (!message.trim()) {
-      showToast('error', 'Por favor redacte la plantilla del mensaje en la Consola de Envíos antes de iniciar el cobro automático.');
+  // 1.5 Envío Rápido y Fácil a Todos los Clientes (1 Clic)
+  const handleOpenSendAllModal = () => {
+    if (clients.length === 0) {
+      showToast('error', 'Aún no tienes clientes en tu directorio. Agrega al menos un cliente.');
+      setActiveTab('contacts');
       return;
     }
-    if (!window.confirm(`¿Confirma iniciar la campaña de cobro automático a todos los clientes del directorio (${clients.length})?`)) return;
+    const defaultTemplate = message && message.trim()
+      ? message
+      : 'Estimado/a {{nombre}}, le recordamos cordialmente que su cuenta presenta saldo pendiente. Por favor responda con su comprobante para actualizar su estado a la brevedad. ¡Muchas gracias!';
+    setSendAllMessage(defaultTemplate);
+    setSendAllModalOpen(true);
+  };
 
+  const handleConfirmSendAll = async () => {
+    if (sendAllSending) return;
+    if (status !== 'CONNECTED') {
+      showToast('error', 'Tu WhatsApp no está vinculado. Por favor escanea tu código QR en la Consola antes de enviar.');
+      return;
+    }
+    if (!sendAllMessage.trim()) {
+      showToast('error', 'El mensaje no puede estar vacío.');
+      return;
+    }
+
+    setSendAllSending(true);
     setLoading(true);
     setLogs(p => [...p, { 
-      text: 'Cobro Automático iniciado...', 
+      text: `🚀 [ENVÍO A TODOS] Iniciando transmisión a ${clients.length} clientes...`, 
       time: new Date().toLocaleTimeString(),
       type: 'info' 
     }]);
@@ -1014,19 +1044,28 @@ export default function Dashboard() {
     try {
       const token = localStorage.getItem('token');
       await axios.post(`${API_BASE}/api/send-auto-collections`,
-        { messageTemplate: message, delay: Number(delay) },
+        { messageTemplate: sendAllMessage.trim(), delay: Number(delay) || 3 },
         { headers: { Authorization: `Bearer ${token}` } });
-      showToast('success', `Campaña de cobro automático iniciada.`);
-      setActiveTab('dashboard'); // Cambiamos a la consola para ver los logs
+      showToast('success', `¡Campaña iniciada para los ${clients.length} clientes!`);
+      setSendAllModalOpen(false);
+      setActiveTab('dashboard'); // Cambiar a la consola para ver los logs en vivo
     } catch (err) {
+      const errMsg = err.response?.data?.error || err.message;
       setLogs(p => [...p, { 
-        text: `Error de cobro automático: ${err.response?.data?.error || err.message}`, 
+        text: `Error de cobro automático: ${errMsg}`, 
         time: new Date().toLocaleTimeString(),
         type: 'error'
       }]);
-      showToast('error', err.response?.data?.error || 'Error al iniciar cobro automático.');
+      showToast('error', errMsg);
       setLoading(false);
+    } finally {
+      setSendAllSending(false);
     }
+  };
+
+  // Compatibilidad hacia atrás
+  const handleAutoCollection = () => {
+    handleOpenSendAllModal();
   };
 
   // 2. Envío de Prueba Individual (Direct Single Test)
@@ -1293,6 +1332,165 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* == MODAL DE ENVÍO FÁCIL A TODOS LOS CLIENTES (1 CLIC) == */}
+      {sendAllModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div 
+            className="w-full max-w-xl rounded-2xl border shadow-2xl p-6 space-y-4 relative"
+            style={{ background: "var(--wa-card)", borderColor: "var(--wa-border)", color: "var(--wa-text)" }}
+          >
+            {/* Cabecera del Modal */}
+            <div className="flex items-start justify-between pb-3 border-b" style={{ borderColor: "var(--wa-border)" }}>
+              <div className="flex items-center gap-3">
+                <div 
+                  className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shrink-0 shadow"
+                  style={{ background: "#00a884" }}
+                >
+                  <Users size={22} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold block" style={{ color: "var(--wa-text)" }}>
+                    Enviar Mensaje a Todos mis Clientes ({clients.length})
+                  </h3>
+                  <span className="text-xs font-medium block mt-0.5" style={{ color: "var(--wa-muted)" }}>
+                    Se enviará de forma automática y personalizada a los {clients.length} contactos de tu directorio.
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSendAllModalOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                style={{ color: "var(--wa-muted)" }}
+                title="Cerrar ventana"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Estado de WhatsApp */}
+            <div className="flex items-center justify-between text-xs px-3.5 py-2 rounded-xl border" 
+                 style={{ 
+                   background: status === 'CONNECTED' ? "rgba(37, 211, 102, 0.08)" : "rgba(245, 158, 11, 0.08)",
+                   borderColor: status === 'CONNECTED' ? "rgba(37, 211, 102, 0.3)" : "rgba(245, 158, 11, 0.3)"
+                 }}>
+              <span className="font-semibold" style={{ color: "var(--wa-muted)" }}>Estado de Conexión:</span>
+              <span className="font-bold flex items-center gap-1.5" style={{ color: status === 'CONNECTED' ? "var(--wa-green)" : "#d97706" }}>
+                <span className={`w-2.5 h-2.5 rounded-full ${status === 'CONNECTED' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+                {status === 'CONNECTED' ? 'WhatsApp Vinculado y Listo' : '⚠️ WhatsApp No Vinculado (Escanea el QR)'}
+              </span>
+            </div>
+
+            {/* Selector Rápido de Plantilla */}
+            <div>
+              <span className="text-[11px] font-bold block mb-1.5" style={{ color: "var(--wa-muted)" }}>
+                Plantillas sugeridas (clic para aplicar):
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSendAllMessage('Estimado/a {{nombre}}, le recordamos cordialmente que su cuenta presenta saldo pendiente. Por favor responda con su comprobante para actualizar su estado a la brevedad. ¡Muchas gracias!')}
+                  className="p-2 rounded-xl border text-left text-xs transition-all hover:border-[#00a884] cursor-pointer"
+                  style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}
+                >
+                  <span className="font-bold block text-[11px] text-[#00a884]">Recordatorio Suave</span>
+                  <span className="text-[10px] text-gray-500 line-clamp-2">Estimado/a {"{{nombre}}"}, saldo pendiente...</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSendAllMessage('Estimado/a {{nombre}}, le notificamos que su fecha límite de pago está próxima a vencer. Le sugerimos regularizar su cuenta para evitar cargos por mora. {{nota}}')}
+                  className="p-2 rounded-xl border text-left text-xs transition-all hover:border-[#00a884] cursor-pointer"
+                  style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}
+                >
+                  <span className="font-bold block text-[11px] text-amber-600">Aviso Vencimiento</span>
+                  <span className="text-[10px] text-gray-500 line-clamp-2">Estimado/a {"{{nombre}}"}, fecha límite por vencer...</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSendAllMessage('Aviso Formal: Estimado/a {{nombre}}, su cuenta registra atraso en el pago. Agradecemos comunicarse hoy mismo para acordar una solución. {{nota}}')}
+                  className="p-2 rounded-xl border text-left text-xs transition-all hover:border-[#00a884] cursor-pointer"
+                  style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}
+                >
+                  <span className="font-bold block text-[11px] text-red-500">Cobro Formal</span>
+                  <span className="text-[10px] text-gray-500 line-clamp-2">Aviso Formal: Estimado/a {"{{nombre}}"}, registra atraso...</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Editor de Texto con Variables */}
+            <div>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="text-[11px] font-bold" style={{ color: "var(--wa-muted)" }}>
+                  Mensaje personalizado para todos:
+                </label>
+                <span className="text-[10px] text-gray-400">
+                  Usa {"{{nombre}}"} y {"{{nota}}"} para personalizar
+                </span>
+              </div>
+              <textarea
+                rows={4}
+                value={sendAllMessage}
+                onChange={(e) => setSendAllMessage(e.target.value)}
+                className="wa-textarea text-xs w-full"
+                placeholder="Escribe el mensaje que recibirán todos tus clientes..."
+              />
+            </div>
+
+            {/* Vista Previa en Vivo */}
+            <div className="p-3 rounded-xl border space-y-1" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
+              <span className="text-[10px] uppercase font-bold text-gray-400 block tracking-wider">
+                Vista previa con el primer cliente:
+              </span>
+              <p className="text-xs italic" style={{ color: "var(--wa-text)" }}>
+                "{sendAllMessage
+                  .replace(/{{nombre}}/g, clients[0]?.nombre || 'Cliente')
+                  .replace(/{{nota}}/g, clients[0]?.nota || '')
+                  .replace(/{{monto}}/g, 'su saldo pendiente')
+                  .replace(/{{vencimiento}}/g, 'la fecha límite')}"
+              </p>
+            </div>
+
+            {/* Acciones del Modal */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+              <span className="text-xs text-gray-500">
+                Se enviarán <strong>{clients.length}</strong> mensajes con intervalo de <strong>{delay}s</strong>.
+              </span>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSendAllModalOpen(false)}
+                  className="btn-wa-secondary w-full sm:w-auto text-xs py-2.5 px-4 justify-center"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmSendAll}
+                  disabled={sendAllSending || !sendAllMessage.trim() || status !== 'CONNECTED' || clients.length === 0}
+                  className="btn-wa-primary w-full sm:w-auto text-xs py-2.5 px-6 justify-center shadow-md font-bold"
+                  style={{ background: "#00a884" }}
+                  title={status !== 'CONNECTED' ? 'Debes vincular WhatsApp escaneando el código QR para enviar' : 'Enviar mensaje a todos los clientes ahora'}
+                >
+                  {sendAllSending ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Enviando Campaña...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={16} />
+                      <span>🚀 Enviar a Todos ({clients.length})</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {/* Overlay móvil para sidebar */}
       {menuAbierto && (
         <div 
@@ -1553,6 +1751,57 @@ export default function Dashboard() {
         {/* Contenido Acotado y Ergonómico */}
         <main className="flex-1 p-4 md:p-6 lg:p-8 max-w-6xl w-full mx-auto space-y-6">
           
+          {/* BANNER DE ESTADO DE WHATSAPP (Aviso de conexión para entrega de mensajes) */}
+          {status !== 'CONNECTED' ? (
+            <div 
+              className="p-3.5 sm:p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs"
+              style={{ background: "rgba(245, 158, 11, 0.08)", borderColor: "rgba(245, 158, 11, 0.35)" }}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-bold" style={{ background: "rgba(245, 158, 11, 0.2)", color: "#d97706" }}>
+                  <Smartphone size={22} />
+                </div>
+                <div>
+                  <h3 className="text-xs sm:text-sm font-bold flex items-center gap-2" style={{ color: "#d97706" }}>
+                    <span>⚠️ WhatsApp Desconectado</span>
+                    <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30">
+                      Acción Requerida
+                    </span>
+                  </h3>
+                  <p className="text-[11px] sm:text-xs mt-0.5 text-gray-600 dark:text-gray-300">
+                    Los mensajes no saldrán hasta que vincules WhatsApp escaneando el código QR en la Consola.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setActiveTab('dashboard'); showToast('info', 'Escanea el código QR que se muestra a la derecha en la Consola.'); }}
+                className="text-xs font-bold px-4 py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap shadow-xs"
+                style={{ background: "#d97706", color: "#fff" }}
+              >
+                Escanear Código QR
+              </button>
+            </div>
+          ) : (
+            <div 
+              className="p-3 rounded-2xl border flex items-center justify-between gap-3 shadow-xs"
+              style={{ background: "rgba(37, 211, 102, 0.08)", borderColor: "rgba(37, 211, 102, 0.25)" }}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                  WhatsApp Vinculado y Activo
+                </span>
+                <span className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 hidden sm:inline">
+                  — Listo para enviar mensajes a todos tus clientes con 1 clic.
+                </span>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                Línea Conectada
+              </span>
+            </div>
+          )}
+
           {/* Tarjetas KPI Informativas Superiores */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
             <div className="wa-kpi-chip">
@@ -1700,6 +1949,36 @@ export default function Dashboard() {
                         </button>
                       ))}
                     </div>
+                  </div>
+
+                  {/* Tarjeta de Acción Rápida: Enviar a Todos los Clientes */}
+                  <div className="p-3.5 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs" 
+                       style={{ background: "rgba(0, 168, 132, 0.08)", borderColor: "rgba(0, 168, 132, 0.35)" }}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-bold" style={{ background: "#00a884", color: "#fff" }}>
+                        <Users size={20} />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold block" style={{ color: "var(--wa-text)" }}>
+                          Envío Fácil con 1 Clic a Todos tus Clientes
+                        </span>
+                        <span className="text-[11px] block" style={{ color: "var(--wa-muted)" }}>
+                          {clients.length > 0 
+                            ? `Tienes ${clients.length} cliente(s) registrados. Envía tu mensaje a todos con un solo clic.` 
+                            : 'Agrega tus clientes en la pestaña Directorio para enviarles con 1 clic.'}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleOpenSendAllModal}
+                      className="btn-wa-primary sm:w-auto px-4 py-2 text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-sm whitespace-nowrap"
+                      style={{ background: "#00a884" }}
+                      title="Abrir ventana de confirmación para enviar a todos los clientes registrados"
+                    >
+                      <Send size={13} />
+                      <span>🚀 Enviar a Todos ({clients.length})</span>
+                    </button>
                   </div>
 
                   {/* Área de Texto */}
@@ -2045,6 +2324,21 @@ export default function Dashboard() {
                       </>
                     )}
                   </button>
+
+                  {clients.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleOpenSendAllModal}
+                      disabled={status !== 'CONNECTED' || loading}
+                      className="btn-wa-secondary w-full justify-center font-bold text-xs py-2.5 cursor-pointer shadow-xs"
+                      style={{ borderColor: "var(--wa-button)", color: "var(--wa-button)" }}
+                      title={`Enviar mensaje directo a todos los ${clients.length} clientes del directorio`}
+                    >
+                      <Users size={14} />
+                      <span>🚀 Enviar a Todos mis Clientes ({clients.length})</span>
+                    </button>
+                  )}
+
                   {status !== 'CONNECTED' && (
                     <p className="text-[11px] text-center font-medium" style={{ color: "var(--wa-muted)" }}>
                       Escanea el código QR arriba para activar el envío.
@@ -2603,14 +2897,13 @@ export default function Dashboard() {
 
                         <button
                           type="button"
-                          onClick={handleAutoCollection}
-                          disabled={clients.length === 0}
-                          className="btn-wa-primary text-xs py-2 px-3.5 cursor-pointer flex items-center gap-1.5 shadow-sm"
-                          title="Enviar mensaje automático a todos los clientes del directorio usando la plantilla"
-                          style={{ background: "#f59e0b" }}
+                          onClick={handleOpenSendAllModal}
+                          className="btn-wa-primary text-xs py-2 px-4 cursor-pointer flex items-center gap-1.5 shadow-md font-bold"
+                          title="Enviar mensaje personalizado a todos los clientes del directorio con 1 solo clic"
+                          style={{ background: "#00a884" }}
                         >
-                          <Zap size={14} />
-                          <span className="font-bold">Enviar a Todos ({clients.length})</span>
+                          <Send size={14} />
+                          <span>🚀 Enviar a Todos ({clients.length})</span>
                         </button>
 
                         <button

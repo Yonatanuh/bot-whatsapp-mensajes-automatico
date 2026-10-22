@@ -451,7 +451,15 @@ function sanitizeText(str, maxLen = 255) {
 
 function sanitizePhone(phone) {
   if (!phone) return "";
-  return phone.toString().replace(/\D/g, "");
+  let cleanNumber = phone.toString().replace(/\D/g, "");
+  if (cleanNumber.startsWith("00")) {
+    cleanNumber = cleanNumber.substring(2);
+  }
+  // Normalizar números de República Dominicana de 10 dígitos (809/829/849) agregando el código 1
+  if (cleanNumber.length === 10 && /^(809|829|849)/.test(cleanNumber)) {
+    cleanNumber = "1" + cleanNumber;
+  }
+  return cleanNumber;
 }
 
 function isValidPhone(phone) {
@@ -1155,31 +1163,25 @@ io.on("connection", async (socket) => {
 
 // Funciones auxiliares para formato seguro de números
 function formatPhoneNumber(rawNumber) {
-  if (!rawNumber) return "";
-  let cleanNumber = rawNumber.toString().replace(/\D/g, "");
-  // Si es un número de República Dominicana sin el 1 (10 dígitos empezando con 809/829/849)
-  if (cleanNumber.length === 10 && /^(809|829|849)/.test(cleanNumber)) {
-    cleanNumber = "1" + cleanNumber;
-  }
-  return cleanNumber;
+  return sanitizePhone(rawNumber);
 }
 
 async function getValidNumberId(client, cleanNumber) {
   try {
     let numberId = await client.getNumberId(cleanNumber);
-    if (numberId) return numberId;
+    if (numberId && numberId._serialized) return numberId;
 
     if (cleanNumber.startsWith("1") && cleanNumber.length === 11) {
       numberId = await client.getNumberId(cleanNumber.substring(1));
-      if (numberId) return numberId;
+      if (numberId && numberId._serialized) return numberId;
     }
 
     if (cleanNumber.startsWith("52") && cleanNumber.length === 12) {
       numberId = await client.getNumberId(cleanNumber.replace(/^52/, "521"));
-      if (numberId) return numberId;
+      if (numberId && numberId._serialized) return numberId;
     }
 
-    const isRegistered = await client.isRegisteredUser(cleanNumber + "@c.us");
+    const isRegistered = await client.isRegisteredUser(cleanNumber + "@c.us").catch(() => false);
     if (isRegistered) {
       return {
         _serialized: cleanNumber + "@c.us",
@@ -1188,7 +1190,17 @@ async function getValidNumberId(client, cleanNumber) {
       };
     }
   } catch (e) {
-    // Retornar null en fallo de validación
+    // Continuar a fallback
+  }
+
+  // Fallback garantizado: si tiene formato telefónico válido (10 a 15 dígitos),
+  // construir el JID @c.us directamente para que WhatsApp Web entregue el mensaje sin descartar el contacto
+  if (cleanNumber && /^\d{10,15}$/.test(cleanNumber)) {
+    return {
+      _serialized: `${cleanNumber}@c.us`,
+      server: "c.us",
+      user: cleanNumber,
+    };
   }
 
   return null;
