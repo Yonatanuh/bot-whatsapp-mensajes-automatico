@@ -3223,17 +3223,6 @@ export default function Dashboard() {
 
                         <button
                           type="button"
-                          onClick={handleOpenSendAllModal}
-                          className="btn-wa-primary text-xs py-2 px-4 cursor-pointer flex items-center gap-1.5 shadow-md font-bold"
-                          title="Enviar mensaje personalizado a todos los clientes del directorio con 1 solo clic"
-                          style={{ background: "#00a884" }}
-                        >
-                          <Send size={14} />
-                          <span>🚀 Enviar a Todos ({clients.length})</span>
-                        </button>
-
-                        <button
-                          type="button"
                           onClick={handleSyncClientsToMassSend}
                           disabled={clients.length === 0}
                           className="btn-wa-primary text-xs py-2 px-3.5 cursor-pointer flex items-center gap-1.5 shadow-sm"
