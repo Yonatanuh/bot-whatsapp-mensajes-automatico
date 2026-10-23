@@ -1461,6 +1461,21 @@ export default function Dashboard() {
                 >
                   Cancelar
                 </button>
+                {status !== 'CONNECTED' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenWhatsAppDirect(directSendClient, directSendMessage);
+                      setDirectSendModalOpen(false);
+                    }}
+                    className="btn-wa-primary w-full sm:w-auto text-xs py-2 px-4 justify-center flex items-center gap-1.5 cursor-pointer"
+                    style={{ background: "#00a884" }}
+                    title="Abrir en WhatsApp Web de inmediato"
+                  >
+                    <ExternalLink size={13} />
+                    <span>Enviar vía WhatsApp Web</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleSendDirectMessage}
@@ -2660,7 +2675,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* == ESTADO DEL CÓDIGO QR / VINCULACIÓN == */}
-                <div className="wa-card text-center space-y-3">
+                <div id="qr-section" className="wa-card text-center space-y-3">
                   {status === 'CONNECTED' ? (
                     <div className="py-2 flex flex-col sm:flex-row items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
@@ -2759,9 +2774,17 @@ export default function Dashboard() {
                 {/* == BOTONES DE ENVÍO Y TEST RÁPIDO == */}
                 <div className="space-y-2">
                   <button
-                    onClick={handleSend}
-                    disabled={status !== 'CONNECTED' || loading}
-                    className="btn-wa-primary"
+                    onClick={status === 'CONNECTED' ? handleSend : () => {
+                      const qrElem = document.getElementById('qr-section');
+                      if (qrElem) {
+                        qrElem.scrollIntoView({ behavior: 'smooth' });
+                      } else {
+                        handleOpenSendAllModal();
+                      }
+                      showToast('info', 'Por favor escanea el código QR para vincular WhatsApp e iniciar el envío.');
+                    }}
+                    disabled={loading}
+                    className="btn-wa-primary cursor-pointer"
                     title={status !== 'CONNECTED' ? 'Escanea el código QR superior para vincular WhatsApp antes de enviar' : 'Iniciar transmisión masiva'}
                   >
                     {loading ? (
@@ -2786,7 +2809,7 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={handleOpenSendAllModal}
-                      disabled={status !== 'CONNECTED' || loading}
+                      disabled={loading}
                       className="btn-wa-secondary w-full justify-center font-bold text-xs py-2.5 cursor-pointer shadow-xs"
                       style={{ borderColor: "var(--wa-button)", color: "var(--wa-button)" }}
                       title={`Enviar mensaje directo a todos los ${clients.length} clientes del directorio`}
@@ -2798,7 +2821,7 @@ export default function Dashboard() {
 
                   {status !== 'CONNECTED' && (
                     <p className="text-[11px] text-center font-medium" style={{ color: "var(--wa-muted)" }}>
-                      Escanea el código QR arriba para activar el envío.
+                      Escanea el código QR arriba para activar el envío masivo.
                     </p>
                   )}
                 </div>

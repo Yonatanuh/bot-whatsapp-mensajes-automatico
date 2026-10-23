@@ -817,13 +817,12 @@ const PUPPETEER_BASE_ARGS = [
   "--no-sandbox",
   "--disable-setuid-sandbox",
   "--disable-dev-shm-usage",
+  "--disable-accelerated-2d-canvas",
   "--no-first-run",
+  "--no-zygote",
   "--disable-gpu",
   "--disable-extensions",
-  "--disable-blink-features=AutomationControlled",
-  "--disable-features=IsolateOrigins,site-per-process",
-  "--disable-site-isolation-trials",
-  "--disable-web-security"
+  "--disable-blink-features=AutomationControlled"
 ];
 
 const DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
@@ -1195,9 +1194,9 @@ async function getValidNumberId(client, cleanNumber) {
     // Continuar a fallback
   }
 
-  // Fallback garantizado: si tiene formato telefónico válido (10 a 15 dígitos),
+  // Fallback garantizado: si tiene formato telefónico válido (7 a 15 dígitos),
   // construir el JID @c.us directamente para que WhatsApp Web entregue el mensaje sin descartar el contacto
-  if (cleanNumber && /^\d{10,15}$/.test(cleanNumber)) {
+  if (cleanNumber && /^\d{7,15}$/.test(cleanNumber)) {
     return {
       _serialized: `${cleanNumber}@c.us`,
       server: "c.us",
@@ -1295,10 +1294,7 @@ app.post("/api/send", authenticateToken, async (req, res) => {
       const numberId = await getValidNumberId(client, cleanNumber);
 
       if (numberId) {
-        const sent = await client.sendMessage(numberId._serialized, cleanMessage);
-        if (!sent) {
-          throw new Error("WhatsApp no confirmó la entrega del mensaje.");
-        }
+        await client.sendMessage(numberId._serialized, cleanMessage);
         io.to(userEmail).emit("log", `✅ Enviado a: ${rawNumber}`);
       } else {
         io.to(userEmail).emit(
@@ -1380,10 +1376,7 @@ async function executeAutoCollections(userEmail, { messageTemplate, delay, filte
           .replace(/{{monto}}/g, "su saldo pendiente")
           .replace(/{{vencimiento}}/g, "la fecha límite");
 
-        const sent = await client.sendMessage(numberId._serialized, mensajePersonalizado);
-        if (!sent) {
-          throw new Error("WhatsApp no confirmó la entrega del mensaje.");
-        }
+        await client.sendMessage(numberId._serialized, mensajePersonalizado);
         io.to(userEmail).emit(
           "log",
           `✅ [COBRO] Entregado a: ${cliente.nombre} (${cliente.numero})`,
@@ -2204,10 +2197,7 @@ app.post("/api/test/single", authenticateToken, authorizeAdmin, async (req, res)
       });
     }
 
-    const sent = await client.sendMessage(numberId._serialized, cleanMessage);
-    if (!sent) {
-      throw new Error("WhatsApp no confirmó la entrega del mensaje de prueba.");
-    }
+    await client.sendMessage(numberId._serialized, cleanMessage);
     io.to(userEmail).emit(
       "log",
       `🧪 [PRUEBA] Mensaje de prueba enviado exitosamente a: ${cleanNumber}`,
