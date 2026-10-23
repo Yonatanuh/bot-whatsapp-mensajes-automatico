@@ -49,11 +49,13 @@ function loadLocalClients() {
     if (!fs.existsSync(CLIENTS_FILE)) return [];
     const data = fs.readFileSync(CLIENTS_FILE, "utf-8");
     const list = JSON.parse(data) || [];
-    return list.map(c => ({
-      ...c,
-      estado: ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(c.estado) ? c.estado : 'PENDIENTE',
-      nota: decryptField(c.nota)
-    }));
+    return list
+      .filter(c => c && typeof c === 'object' && Boolean(c.numero && c.numero.toString().trim()))
+      .map(c => ({
+        ...c,
+        estado: ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(c.estado) ? c.estado : 'PENDIENTE',
+        nota: decryptField(c.nota)
+      }));
   } catch {
     return [];
   }
@@ -294,11 +296,13 @@ async function getAllClients() {
       const docs = await mongoDb.collection("clients")
         .find({}, { projection: { _id: 0 } })
         .toArray();
-      return docs.map(c => ({
-        ...c,
-        estado: ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(c.estado) ? c.estado : 'PENDIENTE',
-        nota: decryptField(c.nota)
-      }));
+      return docs
+        .filter(c => c && typeof c === 'object' && Boolean(c.numero && c.numero.toString().trim()))
+        .map(c => ({
+          ...c,
+          estado: ['PENDIENTE', 'VENCIDO', 'PAGADO'].includes(c.estado) ? c.estado : 'PENDIENTE',
+          nota: decryptField(c.nota)
+        }));
     } catch (err) {
       console.warn("⚠️ [DB] Error leyendo todos los clientes de MongoDB, usando respaldo local:", err.message);
     }

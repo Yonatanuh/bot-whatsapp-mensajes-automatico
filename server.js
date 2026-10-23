@@ -220,11 +220,13 @@ function loadClients() {
     if (!fs.existsSync(CLIENTS_FILE)) return [];
     const data = fs.readFileSync(CLIENTS_FILE, "utf-8");
     const list = JSON.parse(data) || [];
-    // Desencriptar campos sensibles en memoria
-    return list.map(c => ({
-      ...c,
-      nota: decryptField(c.nota)
-    }));
+    // Desencriptar campos sensibles en memoria, excluyendo entradas corruptas sin número
+    return list
+      .filter(c => c && typeof c === 'object' && Boolean(c.numero && c.numero.toString().trim()))
+      .map(c => ({
+        ...c,
+        nota: decryptField(c.nota)
+      }));
   } catch {
     return [];
   }
@@ -963,8 +965,7 @@ async function getOrCreateUserSession(userEmail) {
     authStrategy: new LocalAuth({ clientId, dataPath: authDataPath }),
     authTimeoutMs: 120000,
     webVersionCache: {
-      type: "remote",
-      remotePath: "https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1051310411-alpha.html"
+      type: "none"
     },
     bypassCSP: true,
     userAgent: DESKTOP_USER_AGENT,
@@ -1113,18 +1114,13 @@ async function getOrCreateUserSession(userEmail) {
 
       if (sess.client.pupPage && !sess.client.pupPage.isClosed()) {
         const hasChatList = await sess.client.pupPage.evaluate(() => {
-          const hasNoQr = !document.querySelector('canvas[aria-label*="Scan"]') && !document.querySelector('div[data-ref]');
-          const hasApp = Boolean(document.querySelector('#app') || document.querySelector('#main') || document.querySelector('header'));
           const hasChatSelector = Boolean(
             document.querySelector('#pane-side') ||
             document.querySelector('[data-testid="chat-list"]') ||
-            document.querySelector('[data-icon="chat"]') ||
-            document.querySelector('[aria-label*="Chat"]') ||
-            document.querySelector('#side') ||
-            document.querySelector('[data-testid="intro-title"]')
+            document.querySelector('#side')
           );
           const hasStore = Boolean(window.Store && window.Store.Conn && window.Store.Conn.status === 'CONNECTED');
-          return hasChatSelector || (hasNoQr && hasApp) || hasStore;
+          return hasChatSelector || hasStore;
         }).catch(() => false);
 
         if (hasChatList) {
@@ -1232,18 +1228,13 @@ async function ensureSessionConnected(session) {
 
     if (session.client.pupPage && !session.client.pupPage.isClosed()) {
       const inDom = await session.client.pupPage.evaluate(() => {
-        const hasNoQr = !document.querySelector('canvas[aria-label*="Scan"]') && !document.querySelector('div[data-ref]');
-        const hasApp = Boolean(document.querySelector('#app') || document.querySelector('#main') || document.querySelector('header'));
         const hasChatSelector = Boolean(
           document.querySelector('#pane-side') ||
           document.querySelector('[data-testid="chat-list"]') ||
-          document.querySelector('[data-icon="chat"]') ||
-          document.querySelector('[aria-label*="Chat"]') ||
-          document.querySelector('#side') ||
-          document.querySelector('[data-testid="intro-title"]')
+          document.querySelector('#side')
         );
         const hasStore = Boolean(window.Store && window.Store.Conn && window.Store.Conn.status === 'CONNECTED');
-        return hasChatSelector || (hasNoQr && hasApp) || hasStore;
+        return hasChatSelector || hasStore;
       }).catch(() => false);
 
       if (inDom) {
@@ -1304,7 +1295,10 @@ app.post("/api/send", authenticateToken, async (req, res) => {
       const numberId = await getValidNumberId(client, cleanNumber);
 
       if (numberId) {
-        await client.sendMessage(numberId._serialized, cleanMessage);
+        const sent = await client.sendMessage(numberId._serialized, cleanMessage);
+        if (!sent) {
+          throw new Error("WhatsApp no confirmó la entrega del mensaje.");
+        }
         io.to(userEmail).emit("log", `✅ Enviado a: ${rawNumber}`);
       } else {
         io.to(userEmail).emit(
@@ -1386,7 +1380,10 @@ async function executeAutoCollections(userEmail, { messageTemplate, delay, filte
           .replace(/{{monto}}/g, "su saldo pendiente")
           .replace(/{{vencimiento}}/g, "la fecha límite");
 
-        await client.sendMessage(numberId._serialized, mensajePersonalizado);
+        const sent = await client.sendMessage(numberId._serialized, mensajePersonalizado);
+        if (!sent) {
+          throw new Error("WhatsApp no confirmó la entrega del mensaje.");
+        }
         io.to(userEmail).emit(
           "log",
           `✅ [COBRO] Entregado a: ${cliente.nombre} (${cliente.numero})`,
@@ -2207,7 +2204,10 @@ app.post("/api/test/single", authenticateToken, authorizeAdmin, async (req, res)
       });
     }
 
-    await client.sendMessage(numberId._serialized, cleanMessage);
+    const sent = await client.sendMessage(numberId._serialized, cleanMessage);
+    if (!sent) {
+      throw new Error("WhatsApp no confirmó la entrega del mensaje de prueba.");
+    }
     io.to(userEmail).emit(
       "log",
       `🧪 [PRUEBA] Mensaje de prueba enviado exitosamente a: ${cleanNumber}`,
