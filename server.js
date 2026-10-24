@@ -906,10 +906,10 @@ async function getOrCreateUserSession(userEmail) {
       if (existing.status === "CONNECTED" || existing.status === "QR_READY" || existing.status === "AUTHENTICATED") {
         return existing;
       }
-      if (existing.status === "INITIALIZING" && Date.now() - (existing.createdAt || 0) < 180000) {
+      if (existing.status === "INITIALIZING" && Date.now() - (existing.createdAt || 0) < 300000) {
         return existing;
       }
-      console.warn(`⏳ [WHATSAPP] Pasarela estancada en ${existing.status} tras más de 3 minutos. Reconstruyendo limpiamente...`);
+      console.warn(`⏳ [WHATSAPP] Pasarela estancada en ${existing.status} tras más de 5 minutos. Reconstruyendo limpiamente...`);
       await safelyDestroyClient(existing.client);
       sessions.delete(CORPORATE_GATEWAY_KEY);
       if (fs.existsSync(sessionDir)) {
@@ -1075,6 +1075,13 @@ async function getOrCreateUserSession(userEmail) {
     if (fs.existsSync(sessionDir)) {
       try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
     }
+
+    // Auto-recuperación proactiva tras 20 segundos para entornos cloud como Render
+    console.log(`🔄 [WHATSAPP] Reintentando inicialización limpia en 20 segundos...`);
+    io.emit("log", `🔄 [WHATSAPP] Reintentando conexión automática en 20 segundos...`);
+    setTimeout(() => {
+      getOrCreateUserSession().catch(e => console.warn("⚠️ [WHATSAPP] Fallo en reintento automático:", e.message));
+    }, 20000);
   });
 
   // Watchdog proactivo: detecta conexión exitosa de manera ágil sin saturar la CPU
@@ -1536,6 +1543,16 @@ app.get("/api/status", authenticateToken, async (req, res) => {
   const nextQr = session && session.qr ? normalizeQrDataUrl(session.qr) : "";
   if (session) session.qr = nextQr;
 
+  res.json({
+    status: session ? session.status : "DISCONNECTED",
+    qr: nextQr
+  });
+});
+
+// Endpoint ultraligero para consultar QR sin bloquear ni forzar reinicios
+app.get("/api/whatsapp/qr", authenticateToken, (req, res) => {
+  const session = sessions.get(CORPORATE_GATEWAY_KEY);
+  const nextQr = session && session.qr ? normalizeQrDataUrl(session.qr) : "";
   res.json({
     status: session ? session.status : "DISCONNECTED",
     qr: nextQr

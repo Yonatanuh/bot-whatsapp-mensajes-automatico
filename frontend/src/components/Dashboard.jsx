@@ -113,6 +113,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [status, setStatus] = useState('DISCONNECTED');
   const [qr, setQr] = useState('');
+  const [qrRefreshing, setQrRefreshing] = useState(false);
   const [logs, setLogs] = useState([]);
   const [numbers, setNumbers] = useState('18095550123');
   const [message, setMessage] = useState("");
@@ -370,6 +371,13 @@ export default function Dashboard() {
     }
   };
 
+  const handleManualQrRefresh = async () => {
+    setQrRefreshing(true);
+    showToast('info', 'Consultando estado del código QR...');
+    await fetchStatus();
+    setTimeout(() => setQrRefreshing(false), 500);
+  };
+
     const handleCheckWhatsAppStatus = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -474,6 +482,30 @@ export default function Dashboard() {
   useEffect(() => { 
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
   }, [logs]);
+
+  // Auto-refresco del código QR cada 18 segundos (WhatsApp expira el QR cada ~20s)
+  useEffect(() => {
+    if (status === 'QR_READY' && qr) {
+      const qrRefreshTimer = setTimeout(() => {
+        fetchStatus();
+      }, 18000);
+      return () => clearTimeout(qrRefreshTimer);
+    }
+  }, [qr, status]);
+
+  // Sondeo ágil durante la fase INITIALIZING: cada 5s para detectar el QR al instante sin saturar
+  useEffect(() => {
+    if (status === 'INITIALIZING') {
+      const initInterval = setInterval(() => {
+        fetchStatus();
+      }, 5000);
+      const stopTimer = setTimeout(() => clearInterval(initInterval), 120000);
+      return () => {
+        clearInterval(initInterval);
+        clearTimeout(stopTimer);
+      };
+    }
+  }, [status]);
 
   const handleLogout = () => { 
     try {
@@ -1466,7 +1498,7 @@ export default function Dashboard() {
                     type="button"
                     onClick={() => {
                       handleOpenWhatsAppDirect(directSendClient, directSendMessage);
-                      setDirectSendModalOpen(false);
+                      setDirectSendClient(null);
                     }}
                     className="btn-wa-primary w-full sm:w-auto text-xs py-2 px-4 justify-center flex items-center gap-1.5 cursor-pointer"
                     style={{ background: "#00a884" }}
@@ -1828,11 +1860,20 @@ export default function Dashboard() {
                           </div>
                         </div>
                       ) : (
-                        <div className="py-8 flex flex-col items-center justify-center gap-2">
-                          <Loader2 size={28} className="animate-spin" style={{ color: "var(--wa-button)" }} />
-                          <span className="text-xs font-semibold" style={{ color: "var(--wa-muted)" }}>
-                            Generando tu código QR... por favor espera un momento
-                          </span>
+                        <div className="py-6 flex flex-col items-center justify-center gap-2.5">
+                          <Loader2 size={30} className="animate-spin" style={{ color: "var(--wa-button)" }} />
+                          <div className="text-center space-y-1">
+                            <span className="text-xs font-bold block" style={{ color: "var(--wa-text)" }}>
+                              {status === 'INITIALIZING'
+                                ? 'Iniciando pasarela WhatsApp en la nube...'
+                                : 'Generando código QR...'}
+                            </span>
+                            <span className="text-[11px] block max-w-xs" style={{ color: "var(--wa-muted)" }}>
+                              {status === 'INITIALIZING'
+                                ? 'Preparando navegador seguro. Se actualizará automáticamente en cuanto esté listo.'
+                                : 'Obteniendo imagen QR de WhatsApp Web...'}
+                            </span>
+                          </div>
                         </div>
                       )}
 
@@ -1848,10 +1889,12 @@ export default function Dashboard() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => { fetchStatus(); showToast('info', 'Actualizando código QR...'); }}
-                          className="btn-wa-secondary text-xs py-2 px-3.5 cursor-pointer"
+                          onClick={handleManualQrRefresh}
+                          disabled={qrRefreshing}
+                          className="btn-wa-secondary text-xs py-2 px-3.5 cursor-pointer flex items-center gap-1.5"
                         >
-                          Refrescar QR
+                          <RefreshCw size={12} className={qrRefreshing ? 'animate-spin' : ''} />
+                          <span>{qrRefreshing ? 'Consultando...' : 'Refrescar QR'}</span>
                         </button>
                       </div>
                     </>
@@ -2734,35 +2777,73 @@ export default function Dashboard() {
                       </div>
                     </div>
                   ) : (
-                    <div className="py-4 space-y-2">
-                      <div className="flex items-center justify-center gap-2" style={{ color: "var(--wa-muted)" }}>
-                        <Loader2 size={16} className="animate-spin" style={{ color: "var(--wa-button)" }} />
-                        <span className="text-xs font-semibold">
-                          {status === 'INITIALIZING'
-                            ? 'Iniciando pasarela de WhatsApp en la nube...'
-                            : status === 'QR_READY'
-                              ? 'Cargando código QR...'
-                              : 'Conectando con la pasarela de WhatsApp...'}
-                        </span>
+                    <div className="py-3 space-y-3">
+                      {/* Indicador de progreso animado */}
+                      <div className="flex flex-col items-center gap-2.5">
+                        <div className="relative w-12 h-12 flex items-center justify-center">
+                          <svg className="absolute inset-0 w-full h-full animate-spin" viewBox="0 0 56 56" fill="none">
+                            <circle cx="28" cy="28" r="24" stroke="var(--wa-border)" strokeWidth="4"/>
+                            <circle cx="28" cy="28" r="24" stroke="var(--wa-button)" strokeWidth="4"
+                              strokeLinecap="round" strokeDasharray="40 112" />
+                          </svg>
+                          <Smartphone size={20} style={{ color: "var(--wa-button)" }} />
+                        </div>
+                        <div className="text-center space-y-1">
+                          <span className="text-xs font-bold block" style={{ color: "var(--wa-text)" }}>
+                            {status === 'INITIALIZING'
+                              ? 'Iniciando pasarela WhatsApp en la nube...'
+                              : status === 'QR_READY'
+                                ? 'Generando imagen del código QR...'
+                                : 'Conectando con la pasarela...'}
+                          </span>
+                          <p className="text-[11px] leading-relaxed max-w-[260px] mx-auto" style={{ color: "var(--wa-muted)" }}>
+                            {status === 'INITIALIZING'
+                              ? 'El servidor cloud está preparando el navegador seguro. El primer inicio toma entre 45 y 75 segundos. Se actualizará automáticamente al terminar.'
+                              : 'Esperando recepción del código QR de WhatsApp Web.'}
+                          </p>
+                        </div>
                       </div>
-                      <p className="text-[11px]" style={{ color: "var(--wa-muted)" }}>
-                        {status === 'INITIALIZING'
-                          ? 'Preparando Chromium y cargando WhatsApp Web. Esto toma unos momentos.'
-                          : 'Esperando imagen del código QR.'}
-                      </p>
-                      <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2">
+
+                      {/* Pasos de inicialización con estado en tiempo real */}
+                      {status === 'INITIALIZING' && (
+                        <div className="p-2.5 rounded-xl border space-y-1.5 text-left max-w-xs mx-auto" style={{ background: "var(--wa-input-bg)", borderColor: "var(--wa-border)" }}>
+                          {[
+                            { label: 'Servidor Express y BD conectados', done: true },
+                            { label: 'Iniciando navegador seguro Chromium', done: true },
+                            { label: 'Cargando WhatsApp Web en la nube', active: true },
+                            { label: 'Generación del código QR', pending: true },
+                          ].map((step, i) => (
+                            <div key={i} className="flex items-center gap-2 text-[11px]">
+                              {step.done ? (
+                                <CheckCircle2 size={13} style={{ color: "var(--wa-green)" }} className="shrink-0" />
+                              ) : step.active ? (
+                                <Loader2 size={13} className="animate-spin shrink-0" style={{ color: "var(--wa-button)" }} />
+                              ) : (
+                                <div className="w-3 h-3 rounded-full border border-gray-400 shrink-0 ml-0.5" />
+                              )}
+                              <span style={{ color: step.done ? "var(--wa-green)" : step.active ? "var(--wa-text)" : "var(--wa-muted)", fontWeight: step.active ? "600" : "normal" }}>
+                                {step.label}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="pt-1 flex flex-col sm:flex-row items-center justify-center gap-2">
                         <button
                           type="button"
-                          onClick={() => { fetchStatus(); showToast('info', 'Consultando estado del código QR...'); }}
-                          className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all shadow-sm"
+                          onClick={handleManualQrRefresh}
+                          disabled={qrRefreshing}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
                           style={{ borderColor: "var(--wa-button)", color: "var(--wa-button)", background: "rgba(0, 168, 132, 0.08)" }}
                         >
-                          Actualizar Código QR
+                          <RefreshCw size={12} className={qrRefreshing ? 'animate-spin' : ''} />
+                          <span>{qrRefreshing ? 'Consultando...' : 'Actualizar Código QR'}</span>
                         </button>
                         <button
                           type="button"
                           onClick={handleDisconnectWhatsApp}
-                          className="text-[11px] text-gray-500 hover:text-gray-700 underline"
+                          className="text-[11px] text-gray-500 hover:text-gray-700 underline cursor-pointer"
                         >
                           Reiniciar pasarela
                         </button>
