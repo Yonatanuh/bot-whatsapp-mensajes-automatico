@@ -204,6 +204,8 @@ export default function Dashboard() {
 
   const logsEndRef = useRef(null);
   const socketRef = useRef(null);
+  const statusRequestIdRef = useRef(0);
+  const socketStatusRevisionRef = useRef(0);
   const fileInputRef = useRef(null);
   const fileInputClientsRef = useRef(null);
   const fileInputBackupRef = useRef(null);
@@ -287,10 +289,15 @@ export default function Dashboard() {
       }
     });
 
-    socketRef.current.on('status', s => setStatus(s));
+    socketRef.current.on('status', s => {
+      socketStatusRevisionRef.current += 1;
+      setStatus(s);
+    });
     socketRef.current.on('qr', q => {
+      socketStatusRevisionRef.current += 1;
       const nextQr = normalizeQrValue(q);
       setQr(nextQr);
+      if (nextQr) setStatus('QR_READY');
     });
     socketRef.current.on('log', log => {
       const logText = typeof log === 'string' ? log : String(log ?? 'Evento recibido');
@@ -299,7 +306,7 @@ export default function Dashboard() {
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         type: logText.includes('Error') ? 'error' : logText.includes('Aviso') ? 'warn' : 'success'
       }].slice(-300));
-      if (logText.includes('finalizada') || logText.includes('completada')) {
+      if (logText.toLowerCase().includes('finalizad') || logText.toLowerCase().includes('completad')) {
         setLoading(false);
         setSimulating(false);
       }
@@ -351,18 +358,27 @@ export default function Dashboard() {
   const fetchStatus = async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
+    const requestId = ++statusRequestIdRef.current;
+    const socketRevision = socketStatusRevisionRef.current;
     try {
       const res = await axios.get(`${API_BASE}/api/status`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.data) {
-        const nextStatus = typeof res.data.status === 'string' ? res.data.status : 'DISCONNECTED';
+      if (
+        res.data &&
+        requestId === statusRequestIdRef.current &&
+        socketRevision === socketStatusRevisionRef.current
+      ) {
         const nextQr = normalizeQrValue(res.data.qr);
+        const reportedStatus = typeof res.data.status === 'string' ? res.data.status : 'DISCONNECTED';
+        const nextStatus = nextQr && reportedStatus !== 'CONNECTED' && reportedStatus !== 'AUTHENTICATED'
+          ? 'QR_READY'
+          : reportedStatus;
 
         setStatus(nextStatus);
-        if (nextStatus === 'CONNECTED' || nextStatus === 'AUTHENTICATED' || !nextQr) {
+        if (nextStatus === 'CONNECTED' || nextStatus === 'AUTHENTICATED' || (!nextQr && nextStatus === 'DISCONNECTED')) {
           setQr('');
-        } else {
+        } else if (nextQr) {
           setQr(nextQr);
         }
       }
@@ -1057,7 +1073,7 @@ export default function Dashboard() {
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      showToast('success', `¡Mensaje enviado con éxito a ${directSendClient.nombre}!`);
+      showToast('success', `Solicitud de envío aceptada para ${directSendClient.nombre}. Revisa los logs para confirmar el resultado.`);
       setDirectSendClient(null);
     } catch (err) {
       showToast('error', `Error al enviar mensaje: ${err.response?.data?.error || err.message}`);
@@ -1112,7 +1128,7 @@ export default function Dashboard() {
       await axios.post(`${API_BASE}/api/send`,
         { numbers: nums, message, delay: Number(delay) },
         { headers: { Authorization: `Bearer ${token}` } });
-      showToast('success', `Campaña enviada a ${nums.length} destinatario(s).`);
+      showToast('success', `Campaña iniciada para ${nums.length} destinatario(s). Revisa los logs para confirmar cada envío.`);
     } catch (err) {
       setLogs(p => [...p, { 
         text: `Error de envío: ${err.response?.data?.error || err.message}`, 
@@ -1255,7 +1271,7 @@ export default function Dashboard() {
         { number: testNumber, message: testMessage },
         { headers: { Authorization: `Bearer ${token}` } });
       setTestResult({ success: true, ...res.data });
-      showToast('success', `Mensaje de prueba entregado a ${testNumber}`);
+      showToast('success', `WhatsApp confirmó el envío a ${testNumber}.`);
     } catch (err) {
       const errMsg = err.response?.data?.error || err.message;
       setTestResult({ success: false, error: errMsg });

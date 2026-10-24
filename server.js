@@ -31,6 +31,8 @@ const bcrypt = require("bcryptjs");
 const { encryptField, decryptField } = require("./services/cryptoService");
 const { createBackup, restoreBackup, getBackupDownloadData, listBackups, initAutoBackup } = require("./services/backupService");
 const dbService = require("./services/dbService");
+const { resolveRegisteredNumberId, sendWhatsAppMessage } = require("./services/whatsappMessaging");
+const { isStaleInitializingSession } = require("./services/whatsappSessionState");
 
 // ── BUFFER DE LOGS DEL SISTEMA PARA DIAGNÓSTICO EN NUBE ──
 const systemLogs = [];
@@ -910,6 +912,7 @@ async function getOrCreateUserSession(userEmail) {
         return existing;
       }
       console.warn(`⏳ [WHATSAPP] Pasarela estancada en ${existing.status} tras más de 5 minutos. Reconstruyendo limpiamente...`);
+      existing.createdAt = Date.now();
       await safelyDestroyClient(existing.client);
       sessions.delete(CORPORATE_GATEWAY_KEY);
       if (fs.existsSync(sessionDir)) {
@@ -1085,7 +1088,6 @@ async function getOrCreateUserSession(userEmail) {
   });
 
   // Watchdog proactivo: detecta conexión exitosa de manera ágil sin saturar la CPU
-  let checkTicks = 0;
   const connectionCheckInterval = setInterval(async () => {
     const sess = sessions.get(CORPORATE_GATEWAY_KEY);
     if (!sess || !sess.client) {
@@ -1097,11 +1099,9 @@ async function getOrCreateUserSession(userEmail) {
       return;
     }
 
-    // Comprobación intensiva (cada 2.5s) solo cuando el usuario ya escaneó (AUTHENTICATED).
-    // Si aún está en QR_READY o INITIALIZING, comprobar solo cada 15s para no saturar Chromium.
-    checkTicks++;
+    // Solo comprobar la conexión mientras se completa una autenticación.
     const isAuthenticating = sess.status === "AUTHENTICATED";
-    if (!isAuthenticating && checkTicks % 6 !== 0) {
+    if (!isAuthenticating) {
       return;
     }
 
@@ -1116,29 +1116,6 @@ async function getOrCreateUserSession(userEmail) {
         console.log(`✅ [WHATSAPP] Watchdog detectó conexión exitosa. Estado: CONNECTED.`);
         clearInterval(connectionCheckInterval);
         return;
-      }
-
-      if (sess.client.pupPage && !sess.client.pupPage.isClosed()) {
-        const hasChatList = await sess.client.pupPage.evaluate(() => {
-          const hasChatSelector = Boolean(
-            document.querySelector('#pane-side') ||
-            document.querySelector('[data-testid="chat-list"]') ||
-            document.querySelector('#side')
-          );
-          const hasStore = Boolean(window.Store && window.Store.Conn && window.Store.Conn.status === 'CONNECTED');
-          return hasChatSelector || hasStore;
-        }).catch(() => false);
-
-        if (hasChatList) {
-          sess.status = "CONNECTED";
-          sess.qr = "";
-          try { sess.info = sess.client.info; } catch {}
-          io.emit("status", "CONNECTED");
-          io.emit("qr", "");
-          console.log(`✅ [WHATSAPP] Interfaz de chats detectada en el DOM. Estado: CONNECTED.`);
-          clearInterval(connectionCheckInterval);
-          return;
-        }
       }
     } catch (e) {}
   }, 2500);
@@ -1174,53 +1151,56 @@ function formatPhoneNumber(rawNumber) {
   return sanitizePhone(rawNumber);
 }
 
-async function getValidNumberId(client, cleanNumber) {
-  try {
-    let numberId = await client.getNumberId(cleanNumber);
-    if (numberId && numberId._serialized) return numberId;
-
-    if (cleanNumber.startsWith("1") && cleanNumber.length === 11) {
-      numberId = await client.getNumberId(cleanNumber.substring(1));
-      if (numberId && numberId._serialized) return numberId;
-    }
-
-    if (cleanNumber.startsWith("52") && cleanNumber.length === 12) {
-      numberId = await client.getNumberId(cleanNumber.replace(/^52/, "521"));
-      if (numberId && numberId._serialized) return numberId;
-    }
-
-    const isRegistered = await client.isRegisteredUser(cleanNumber + "@c.us").catch(() => false);
-    if (isRegistered) {
-      return {
-        _serialized: cleanNumber + "@c.us",
-        server: "c.us",
-        user: cleanNumber,
-      };
-    }
-  } catch (e) {
-    // Continuar a fallback
-  }
-
-  // Fallback garantizado: si tiene formato telefónico válido (7 a 15 dígitos),
-  // construir el JID @c.us directamente para que WhatsApp Web entregue el mensaje sin descartar el contacto
-  if (cleanNumber && /^\d{7,15}$/.test(cleanNumber)) {
-    return {
-      _serialized: `${cleanNumber}@c.us`,
-      server: "c.us",
-      user: cleanNumber,
-    };
-  }
-
-  return null;
-}
-
 const MAX_NUMBERS_PER_BATCH = 500;
 
 async function ensureSessionConnected(session) {
   if (!session || !session.client) return false;
-  if (session.status === "CONNECTED") return true;
 
+  // 1. Si la sesión ya se encuentra marcada como CONNECTED, verificar que la página del navegador siga viva
+  if (session.status === "CONNECTED") {
+    if (session.client.pupPage && typeof session.client.pupPage.isClosed === "function" && session.client.pupPage.isClosed()) {
+      session.status = "DISCONNECTED";
+      session.qr = "";
+      session.info = null;
+      io.emit("status", "DISCONNECTED");
+      io.emit("qr", "");
+      return false;
+    }
+    // Sesión activa y confirmada
+    return true;
+  }
+
+  // 2. Si aún no está en CONNECTED (ej: AUTHENTICATED o escaneo reciente), verificar DOM de WhatsApp Web
   try {
+    const page = session.client.pupPage;
+    if (page && !page.isClosed()) {
+      const isConnectedInDom = await page.evaluate(() => {
+        const hasChatSelector = Boolean(
+          document.querySelector('#pane-side') ||
+          document.querySelector('[data-testid="chat-list"]') ||
+          document.querySelector('#side') ||
+          document.querySelector('header')
+        );
+        const hasStore = Boolean(window.Store && window.Store.Conn && window.Store.Conn.status === 'CONNECTED');
+        const hasQr = Boolean(
+          document.querySelector('canvas[aria-label*="QR"]') ||
+          document.querySelector('[data-ref]')
+        );
+        return (hasChatSelector || hasStore) && !hasQr;
+      }).catch(() => false);
+
+      if (isConnectedInDom) {
+        session.status = "CONNECTED";
+        session.qr = "";
+        try { session.info = session.client.info; } catch {}
+        io.emit("status", "CONNECTED");
+        io.emit("qr", "");
+        console.log("✅ [WHATSAPP] Conexión validada exitosamente mediante elementos del DOM");
+        return true;
+      }
+    }
+
+    // 3. Fallback adicional con getState() seguro sin degradar el estado si arroja error
     const state = await session.client.getState().catch(() => null);
     if (state === "CONNECTED") {
       session.status = "CONNECTED";
@@ -1228,34 +1208,13 @@ async function ensureSessionConnected(session) {
       try { session.info = session.client.info; } catch {}
       io.emit("status", "CONNECTED");
       io.emit("qr", "");
-      console.log("✅ [WHATSAPP] Conexión validada exitosamente mediante getState()");
       return true;
     }
+  } catch (err) {
+    // Sondeo de estado no disruptivo
+  }
 
-    if (session.client.pupPage && !session.client.pupPage.isClosed()) {
-      const inDom = await session.client.pupPage.evaluate(() => {
-        const hasChatSelector = Boolean(
-          document.querySelector('#pane-side') ||
-          document.querySelector('[data-testid="chat-list"]') ||
-          document.querySelector('#side')
-        );
-        const hasStore = Boolean(window.Store && window.Store.Conn && window.Store.Conn.status === 'CONNECTED');
-        return hasChatSelector || hasStore;
-      }).catch(() => false);
-
-      if (inDom) {
-        session.status = "CONNECTED";
-        session.qr = "";
-        try { session.info = session.client.info; } catch {}
-        io.emit("status", "CONNECTED");
-        io.emit("qr", "");
-        console.log("✅ [WHATSAPP] Conexión validada exitosamente mediante DOM chat list");
-        return true;
-      }
-    }
-  } catch (err) {}
-
-  return false;
+  return session.status === "CONNECTED";
 }
 
 // Endpoint Protegido para enviar mensajes (Sesión y Logs aislados por cuenta)
@@ -1298,17 +1257,11 @@ app.post("/api/send", authenticateToken, async (req, res) => {
         continue;
       }
 
-      const numberId = await getValidNumberId(client, cleanNumber);
+      const numberId = await resolveRegisteredNumberId(client, cleanNumber);
+      const targetJid = numberId && numberId._serialized ? numberId._serialized : `${cleanNumber}@c.us`;
 
-      if (numberId) {
-        await client.sendMessage(numberId._serialized, cleanMessage);
-        io.to(userEmail).emit("log", `✅ Enviado a: ${rawNumber}`);
-      } else {
-        io.to(userEmail).emit(
-          "log",
-          `⚠️ Falló: ${rawNumber} no tiene cuenta. (Format: ${cleanNumber})`,
-        );
-      }
+      await sendWhatsAppMessage(client, targetJid, cleanMessage);
+      io.to(userEmail).emit("log", `✅ WhatsApp confirmó el envío a: ${rawNumber}`);
       await new Promise((resolve) => setTimeout(resolve, parsedDelay));
     } catch (error) {
       io.to(userEmail).emit("log", `❌ Error con ${rawNumber}: ${error.message}`);
@@ -1357,10 +1310,9 @@ async function executeAutoCollections(userEmail, { messageTemplate, delay, filte
   const parsedDelay = parseDelayMs(delay);
   const cleanTemplate = (messageTemplate || "").slice(0, 4096);
 
-  io.to(userEmail).emit(
-    "log",
-    `🤖 [COBRO AUTOMÁTICO] Iniciando campaña a ${clients.length} contactos (Filtro: ${filterEstado || 'TODOS'})...`,
-  );
+  const startLog = `🤖 [COBRO AUTOMÁTICO] Iniciando campaña a ${clients.length} contactos (Filtro: ${filterEstado || 'TODOS'})...`;
+  io.to(userEmail).emit("log", startLog);
+  io.emit("log", startLog);
 
   let sent = 0;
   let failed = 0;
@@ -1369,49 +1321,41 @@ async function executeAutoCollections(userEmail, { messageTemplate, delay, filte
     try {
       const cleanNumber = formatPhoneNumber(cliente.numero);
       if (!isValidPhone(cleanNumber)) {
-        io.to(userEmail).emit("log", `⚠️ [COBRO] Omitido: ${cliente.nombre} (${cliente.numero}) formato inválido.`);
+        const omitMsg = `⚠️ [COBRO] Omitido: ${cliente.nombre} (${cliente.numero}) formato inválido.`;
+        io.to(userEmail).emit("log", omitMsg);
+        io.emit("log", omitMsg);
         failed++;
         continue;
       }
 
-      const numberId = await getValidNumberId(client, cleanNumber);
+      const numberId = await resolveRegisteredNumberId(client, cleanNumber);
+      const targetJid = numberId && numberId._serialized ? numberId._serialized : `${cleanNumber}@c.us`;
 
-      if (numberId) {
-        let mensajePersonalizado = cleanTemplate
-          .replace(/{{nombre}}/g, () => cliente.nombre || "Cliente")
-          .replace(/{{nota}}/g, () => cliente.nota || "")
-          .replace(/{{monto}}/g, "su saldo pendiente")
-          .replace(/{{vencimiento}}/g, "la fecha límite");
+      let mensajePersonalizado = cleanTemplate
+        .replace(/{{nombre}}/gi, () => cliente.nombre || "Cliente")
+        .replace(/{{nota}}/gi, () => cliente.nota || "")
+        .replace(/{{monto}}/gi, "su saldo pendiente")
+        .replace(/{{vencimiento}}/gi, "la fecha límite");
 
-        await client.sendMessage(numberId._serialized, mensajePersonalizado);
-        io.to(userEmail).emit(
-          "log",
-          `✅ [COBRO] Entregado a: ${cliente.nombre} (${cliente.numero})`,
-        );
-        sent++;
-      } else {
-        io.to(userEmail).emit(
-          "log",
-          `⚠️ [COBRO] Falló: ${cliente.nombre} (${cliente.numero}) no tiene WhatsApp activo.`,
-        );
-        failed++;
-      }
+      await sendWhatsAppMessage(client, targetJid, mensajePersonalizado);
+      const okMsg = `✅ [COBRO] WhatsApp confirmó el envío a: ${cliente.nombre} (${cliente.numero})`;
+      io.to(userEmail).emit("log", okMsg);
+      io.emit("log", okMsg);
+      sent++;
       await new Promise((resolve) => setTimeout(resolve, parsedDelay));
     } catch (error) {
       failed++;
-      io.to(userEmail).emit(
-        "log",
-        `❌ [COBRO] Error con ${cliente.nombre} (${cliente.numero}): ${error.message}`,
-      );
+      const errMsg = `❌ [COBRO] Error con ${cliente.nombre} (${cliente.numero}): ${error.message}`;
+      io.to(userEmail).emit("log", errMsg);
+      io.emit("log", errMsg);
       if (
         error.message &&
         (error.message.includes("detached Frame") ||
           error.message.includes("Execution context was destroyed"))
       ) {
-        io.to(userEmail).emit(
-          "log",
-          `🔄 [SISTEMA] Sesión de WhatsApp interrumpida. Limpiando para reconexión...`,
-        );
+        const discMsg = `🔄 [SISTEMA] Sesión de WhatsApp interrumpida. Limpiando para reconexión...`;
+        io.to(userEmail).emit("log", discMsg);
+        io.emit("log", discMsg);
         if (session && session.client) {
           safelyDestroyClient(session.client);
           sessions.delete(CORPORATE_GATEWAY_KEY);
@@ -1420,7 +1364,9 @@ async function executeAutoCollections(userEmail, { messageTemplate, delay, filte
     }
   }
 
-  io.to(userEmail).emit("log", `🚀 [COBRO AUTOMÁTICO] Finalizado. Entregados: ${sent}, Omitidos/Errores: ${failed}.`);
+  const endLog = `🚀 [COBRO AUTOMÁTICO] Finalizado. Entregados: ${sent}, Omitidos/Errores: ${failed}.`;
+  io.to(userEmail).emit("log", endLog);
+  io.emit("log", endLog);
   return { total: clients.length, sent, failed };
 }
 
@@ -1535,9 +1481,12 @@ app.delete("/api/schedules/:id", authenticateToken, async (req, res) => {
 // Obtener estado actual de la pasarela de WhatsApp
 app.get("/api/status", authenticateToken, async (req, res) => {
   let session = sessions.get(CORPORATE_GATEWAY_KEY);
-  if (!session) {
+  if (!session || isStaleInitializingSession(session)) {
+    if (session) {
+      console.warn("⏱️ [WHATSAPP] Inicialización estancada. Reiniciando la pasarela para generar un nuevo QR.");
+    }
     session = await getOrCreateUserSession();
-  } else if (session.status === "AUTHENTICATED") {
+  } else if (session.status === "CONNECTED" || session.status === "AUTHENTICATED") {
     await ensureSessionConnected(session);
   }
   const nextQr = session && session.qr ? normalizeQrDataUrl(session.qr) : "";
@@ -2206,23 +2155,18 @@ app.post("/api/test/single", authenticateToken, authorizeAdmin, async (req, res)
 
   const client = session.client;
   try {
-    const numberId = await getValidNumberId(client, cleanNumber);
-    if (!numberId) {
-      io.to(userEmail).emit("log", `⚠️ [PRUEBA] ${cleanNumber} no tiene cuenta de WhatsApp.`);
-      return res.status(404).json({
-        error: `El número ${cleanNumber} no está registrado en WhatsApp.`,
-      });
-    }
+    const numberId = await resolveRegisteredNumberId(client, cleanNumber);
+    const targetJid = numberId && numberId._serialized ? numberId._serialized : `${cleanNumber}@c.us`;
 
-    await client.sendMessage(numberId._serialized, cleanMessage);
+    await sendWhatsAppMessage(client, targetJid, cleanMessage);
     io.to(userEmail).emit(
       "log",
-      `🧪 [PRUEBA] Mensaje de prueba enviado exitosamente a: ${cleanNumber}`,
+      `🧪 [PRUEBA] WhatsApp confirmó el envío a: ${cleanNumber}`,
     );
     return res.json({
       success: true,
-      message: "Mensaje de prueba enviado exitosamente",
-      jid: numberId._serialized,
+      message: "WhatsApp confirmó el envío del mensaje de prueba",
+      jid: targetJid,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -2253,7 +2197,7 @@ app.post("/api/test/check-number", authenticateToken, authorizeAdmin, async (req
 
   const client = session.client;
   try {
-    const numberId = await getValidNumberId(client, cleanNumber);
+    const numberId = await resolveRegisteredNumberId(client, cleanNumber);
     if (numberId) {
       return res.json({
         exists: true,

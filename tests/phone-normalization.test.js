@@ -14,13 +14,6 @@ function sanitizePhone(phone) {
   return cleanNumber;
 }
 
-function getFallbackJid(cleanNumber) {
-  if (cleanNumber && /^\d{10,15}$/.test(cleanNumber)) {
-    return `${cleanNumber}@c.us`;
-  }
-  return null;
-}
-
 test('sanitizePhone normalizes Dominican local numbers with area code 809/829/849', () => {
   assert.equal(sanitizePhone('8095550103'), '18095550103');
   assert.equal(sanitizePhone('8295550104'), '18295550104');
@@ -33,13 +26,7 @@ test('sanitizePhone handles numbers with + and punctuation', () => {
   assert.equal(sanitizePhone('0018095550103'), '18095550103');
 });
 
-test('getFallbackJid produces valid @c.us for 10-15 digit numbers', () => {
-  const dominican = sanitizePhone('8095550103');
-  assert.equal(getFallbackJid(dominican), '18095550103@c.us');
-
-  const intl = sanitizePhone('573001234567');
-  assert.equal(getFallbackJid(intl), '573001234567@c.us');
-
-  assert.equal(getFallbackJid('123'), null);
+test('sanitizePhone preserves an international number country code', () => {
+  assert.equal(sanitizePhone('+57 300 123 4567'), '573001234567');
+  assert.equal(sanitizePhone('123'), '123');
 });
-
